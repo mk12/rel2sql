@@ -1,0 +1,23 @@
+[package]
+name = "rel2sql"
+version = "0.1.0"
+authors = ["Mitchell Kember <mk12360@gmail.com>"]
+description = "Tool for converting tuple relational calculus to SQL"
+license = "MIT"
+homepage = "https://github.com/mk12/rel2sql"
+repository = "https://github.com/mk12/rel2sql"
+documentation = "https://docs.rs/rel2sql"
+readme = "README.md"
+keywords = ["SQL", "parser"]
+categories = ["command-line-utilities", "parser-implementations"]
+
+[lib]
+name = "rel2sql"
+doc = true
+
+[[bin]]
+name = "rel2sql"
+doc = false
+
+[dependencies]
+nom = "3.2"
