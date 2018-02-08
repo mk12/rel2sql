@@ -1,4 +1,4 @@
-//! Tuple relational calculus data structures.
+//! Abstract syntax tree for the tuple relational calculus.
 
 /// A query in the tuple relational calculus.
 ///

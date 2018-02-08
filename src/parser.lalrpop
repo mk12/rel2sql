@@ -1,0 +1,62 @@
+use ast::*;
+
+grammar;
+
+// Top level rule
+
+pub Query: Query<'input> = {
+    "{" <tuple:Tuple> ":" <formula:Formula> "}" => Query {<>}
+};
+
+// Helpers
+
+Comma<T>: Vec<T> = {
+    <v:(<T> ",")*> <e:T?> => match e {
+        None => v,
+        Some(e) => {
+            let mut v = v;
+            v.push(e);
+            v
+        }
+    }
+};
+
+// Nonterminals
+
+Tuple: Tuple<'input> = {
+    "(" <Comma<Expression>> ")" => <>
+};
+
+Expression: Expression<'input> = {
+    <val:Number> => Expression::Const { typ: Type::Number, <> },
+    "\"" <val:Number> "\"" => Expression::Const { typ: Type::Text, <> },
+    "\"" <val:Ident> "\"" => Expression::Const { typ: Type::Text, <> },
+    <name:Ident> => Expression::Var { <> },
+    <op:Ident> <args:Tuple> => Expression::App { <> },
+};
+
+Formula: Formula<'input> = Formula1;
+
+Formula1: Formula<'input> = {
+    <lhs:Formula1> <op:Connective> <rhs:Formula2> => Formula::Conn { op: op, args: vec![lhs, rhs] },
+    Formula2,
+};
+
+Formula2: Formula<'input> = {
+    "!" <f:Formula2> => Formula::Conn { op: Connective::Not, args: vec![f] },
+    Formula3,
+};
+
+Formula3: Formula<'input> = {
+    <op:Ident> <args:Tuple> => Formula::Rel {<>}
+};
+
+Connective: Connective = {
+    "&" => Connective::And,
+    "|" => Connective::Or,
+};
+
+// Terminals
+
+Number: &'input str = <s:r"[0-9]+"> => s;
+Ident: &'input str = <s:r"[a-zA-Z][a-zA-Z0-9]*"> => s;

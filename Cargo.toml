@@ -10,6 +10,7 @@ documentation = "https://docs.rs/rel2sql"
 readme = "README.md"
 keywords = ["SQL", "parser"]
 categories = ["command-line-utilities", "parser-implementations"]
+build = "build.rs"
 
 [lib]
 name = "rel2sql"
@@ -19,6 +20,9 @@ doc = true
 name = "rel2sql"
 doc = false
 
-[dependencies.nom]
-version = "3.2"
-features = ["nightly", "verbose-errors"]
+[dependencies]
+lalrpop-util = "0.14"
+regex = "0.2"
+
+[build-dependencies]
+lalrpop = "0.14"
