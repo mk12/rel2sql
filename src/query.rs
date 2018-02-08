@@ -10,57 +10,56 @@
 /// The lifetime 'a is the lifetime of all strings referenced in the query. In
 /// the case of parsing text input, this allows for referring directly into the
 /// text without making any copies.
-struct Query<'a> {
+#[derive(Debug, PartialEq, Eq)]
+pub struct Query<'a> {
     /// The result tuple, usually containing Var expressions.
-    tuple: Vec<Expression<'a>>,
+    pub tuple: Tuple<'a>,
     /// The query formula.
-    formula: Formula<'a>,
+    pub formula: Formula<'a>,
 }
 
 /// Type of an expression in the tuple relational calculus.
 ///
 /// This is only used for tagging constants for display purposes (for example,
 /// text needs to be quoted). It is not used for typechecking.
-enum Type {
+#[derive(Debug, PartialEq, Eq)]
+pub enum Type {
     Number,
     Text,
 }
 
+/// A tuple of expressions.
+pub type Tuple<'a> = Vec<Expression<'a>>;
+
 /// An expression in the tuple relational calculus.
-enum Expression<'a> {
+#[derive(Debug, PartialEq, Eq)]
+pub enum Expression<'a> {
     /// A constant expression.
-    Const { value: &'a str, typ: Type },
+    Const { val: &'a str, typ: Type },
     /// A variable expression.
     Var { name: &'a str },
     /// An application of an operator to expression arguments.
-    App {
-        op: &'a str,
-        args: Vec<Expression<'a>>,
-    },
+    App { op: &'a str, args: Tuple<'a> },
 }
 
 /// A logical connective that can be used in a formula.
-enum Connective {
+#[derive(Debug, PartialEq, Eq)]
+pub enum Connective {
     And,
     Or,
     Not,
 }
 
 /// A formula in the tuple relational calculus.
-enum Formula<'a> {
+#[derive(Debug, PartialEq, Eq)]
+pub enum Formula<'a> {
     /// A formula denoting that the args tuple belongs to the named relation.
-    Rel {
-        name: &'a str,
-        args: Vec<Expression<'a>>,
-    },
+    Rel { op: &'a str, args: Tuple<'a> },
     /// A combination of formulas joined by a logical connective.
     Conn {
         op: Connective,
         args: Vec<Formula<'a>>,
     },
     /// An application of a predicate to expression arguments.
-    App {
-        op: &'a str,
-        args: Vec<Expression<'a>>,
-    },
+    App { op: &'a str, args: Tuple<'a> },
 }
