@@ -5,5 +5,9 @@ extern crate rel2sql;
 use rel2sql::parser::parse_Query;
 
 fn main() {
-    println!("hi: {:?}", parse_Query("{(x):R(x)&Q(x,y)}"));
+    let res = parse_Query("{(x):(exists y.R(x)|!Q(x,y)&!z())&p(1*(2+2)*3)}");
+    println!("hi: {:?}", res);
+    if let Ok(q) = res {
+        println!("OK:\n{}", q);
+    }
 }

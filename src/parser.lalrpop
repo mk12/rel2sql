@@ -1,14 +1,14 @@
-use ast::*;
+use trc::*;
 
 grammar;
 
 // Top level rule
 
 pub Query: Query<'input> = {
-    "{" <tuple:Tuple> ":" <formula:Formula> "}" => Query {<>}
+    "{" <tuple:Tuple> ":" <formula:Formula> "}" => Query { <> }
 };
 
-// Helpers
+// Generic helpers
 
 Comma<T>: Vec<T> = {
     <v:(<T> ",")*> <e:T?> => match e {
@@ -21,42 +21,78 @@ Comma<T>: Vec<T> = {
     }
 };
 
+CommaOne<T>: Vec<T> = {
+    <v:(<T> ",")*> <e:T> => {
+        let mut v = v;
+        v.push(e);
+        v
+    }
+};
+
+// Precendence tier helpers
+
+FTier1<Conn, Next>: Formula<'input> = {
+    <conn:Conn> <arg:FTier1<Conn, Next>> =>
+        Formula::Conn { conn, args: vec![arg] },
+    Next,
+};
+
+FTier2<Conn, Next>: Formula<'input> = {
+    <lhs:FTier2<Conn, Next>> <conn:Conn> <rhs:Next> =>
+        Formula::Conn { conn, args: vec![lhs, rhs] },
+    Next,
+};
+
+ETier2<Fun, Next>: Expression<'input> = {
+    <lhs:ETier2<Fun, Next>> <fun:Fun> <rhs:Next> =>
+        Expression::App { fun, args: vec![lhs, rhs] },
+    Next,
+};
+
 // Nonterminals
 
 Tuple: Tuple<'input> = {
     "(" <Comma<Expression>> ")" => <>
 };
 
-Expression: Expression<'input> = {
-    <val:Number> => Expression::Const { typ: Type::Number, <> },
-    "\"" <val:Number> "\"" => Expression::Const { typ: Type::Text, <> },
-    "\"" <val:Ident> "\"" => Expression::Const { typ: Type::Text, <> },
+Expression = ETier2<MultDivMod, ETier2<AddSub, BaseExpression>>;
+
+BaseExpression: Expression<'input> = {
+    <val:Number> => Expression::Const { <> },
+    <val:QuotedString> => Expression::Const { <> },
     <name:Ident> => Expression::Var { <> },
-    <op:Ident> <args:Tuple> => Expression::App { <> },
+    <fun:Ident> "(" <args:Tuple> ")" => Expression::App { <> },
+    "(" <Expression> ")",
 };
 
-Formula: Formula<'input> = Formula1;
-
-Formula1: Formula<'input> = {
-    <lhs:Formula1> <op:Connective> <rhs:Formula2> => Formula::Conn { op: op, args: vec![lhs, rhs] },
-    Formula2,
+Formula: Formula<'input> = {
+    "exists" <vars:CommaOne<Ident>> "." <body:Formula> =>
+        Formula::Exists { vars, body: Box::new(body) },
+    FTier2<Or, FTier2<And, FormulaComp<FTier1<Not, BaseFormula>>>>,
 };
 
-Formula2: Formula<'input> = {
-    "!" <f:Formula2> => Formula::Conn { op: Connective::Not, args: vec![f] },
-    Formula3,
+FormulaComp<Next>: Formula<'input> = {
+    <lhs:Expression> <pred:Comparison> <rhs:Expression> =>
+        Formula::App { pred, args: vec![lhs, rhs] },
+    Next,
 };
 
-Formula3: Formula<'input> = {
-    <op:Ident> <args:Tuple> => Formula::Rel {<>}
-};
-
-Connective: Connective = {
-    "&" => Connective::And,
-    "|" => Connective::Or,
+BaseFormula: Formula<'input> = {
+    <pred:Ident> <args:Tuple> => Formula::App { <> },
+    "(" <Formula> ")",
 };
 
 // Terminals
 
-Number: &'input str = <s:r"[0-9]+"> => s;
-Ident: &'input str = <s:r"[a-zA-Z][a-zA-Z0-9]*"> => s;
+MultDivMod = r"[*/%]";
+AddSub = r"[+-]";
+
+Not: Connective = "!" => Connective::Not;
+And: Connective = "&" => Connective::And;
+Or: Connective = "|" => Connective::Or;
+
+Comparison = "<";
+
+Number = r"[0-9]+";
+QuotedString = r#""[^"]*""#;
+Ident = r"[a-zA-Z][a-zA-Z0-9]*";
