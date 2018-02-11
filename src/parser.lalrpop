@@ -1,4 +1,4 @@
-use ulc::{Query, Term};
+use ulc::{Query, Term, Tuple};
 
 grammar;
 
@@ -11,7 +11,7 @@ pub Query: Query<'input> = {
 // Nonterminals
 
 Tuple: Vec<Term<'input>> = {
-    "(" <Comma<Term>> ")" => <>
+    "(" <Comma<Term>> ")" => Tuple(<>)
 };
 
 Term: Term<'input> = {

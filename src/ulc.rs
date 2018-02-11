@@ -1,5 +1,18 @@
 /// Untyped lambda calculus.
 
+/// A lambda calculus representation of a relational calculus query.
+///
+/// This structure represents a tuple relation calculus query in the untyped
+/// lambda calculus. It might not be well-formed, since the lambda calculus
+/// makes no distinction between expressions and formulas.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Query<'a> {
+    /// The result tuple.
+    pub tuple: Vec<Term<'a>>,
+    /// The query formula.
+    pub formula: Term<'a>,
+}
+
 /// A term in the untyped lambda calculus.
 ///
 /// This representation is non-standard in a few ways:
@@ -13,21 +26,8 @@ pub enum Term<'a> {
     Const(&'a str),
     /// A named variable.
     Var(&'a str),
-    /// A lambda abstraction, with one or more bound variables.
+    /// A lambda abstraction with one or more bound variables.
     Abs(Vec<&'a str>, Box<Term<'a>>),
-    /// An application of a named variable to a term.
+    /// An application of a named variable to a tuple of terms.
     App(&'a str, Vec<Term<'a>>),
-}
-
-/// A lambda calculus representation of a relational calculus query.
-///
-/// This structure represents a tuple relation calculus query in the untyped
-/// lambda calculus. It might not be well-formed, since the lambda calculus
-/// makes no distinction between expressions and formulas.
-#[derive(Debug, PartialEq, Eq)]
-pub struct Query<'a> {
-    /// The result tuple.
-    pub tuple: Vec<Term<'a>>,
-    /// The query formula.
-    pub formula: Term<'a>,
 }
