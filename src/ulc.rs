@@ -6,7 +6,7 @@
 ///
 /// 1. There are constants in addition to variables.
 /// 2. Abstractions and applications are multi-argument.
-/// 3. Applications can only have variables on the left-hand side.
+/// 3. Applications can only have variable operators, not general terms.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Term<'a> {
     /// A string constant.

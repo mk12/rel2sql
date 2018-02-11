@@ -5,13 +5,11 @@ use std::fmt;
 /// A query in the tuple relational calculus.
 ///
 /// A query consists of a tuple and a formula. The answer to the query is the
-/// set of all tuples satisfying the formula with respect to some database
-/// instance. In a well-formed query, the free variables of the formula must be
-/// a subset of the free variables in the result tuple.
+/// value of the tuple under all valuations of free variables satisfying the
+/// formula with respect to some database instance.
 ///
-/// The lifetime 'a is the lifetime of all strings referenced in the query. In
-/// the case of parsing text input, this allows for referring directly into the
-/// text without making any copies.
+/// The lifetime 'a is the lifetime of all strings referenced in the query. This
+/// makes it possible to avoid making any copies
 #[derive(Debug, PartialEq, Eq)]
 pub struct Query<'a> {
     /// The result tuple, usually containing Var expressions.
