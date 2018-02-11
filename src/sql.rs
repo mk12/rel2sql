@@ -1,1 +1,1 @@
-//! Abstract syntax tree for a basic version of SQL.
+//! Basic version of SQL (Structured Query Language).

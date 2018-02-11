@@ -1,4 +1,4 @@
-//! Abstract syntax tree for the tuple relational calculus.
+//! Tuple relational calculus.
 
 use std::fmt;
 
@@ -52,7 +52,7 @@ pub enum Formula<'a> {
 }
 
 /// A logical connective that can be used in a formula.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Connective {
     Not,
     And,
@@ -159,13 +159,12 @@ impl<'a> Operator for Formula<'a> {
                 Connective::And => 2,
                 Connective::Not => 1,
             },
-
             _ => 0,
         }
     }
 
     fn args(&self) -> &[Formula<'a>] {
-        if let Formula::Conn { conn, args } = self {
+        if let Formula::Conn { args, .. } = self {
             args
         } else {
             &[]
