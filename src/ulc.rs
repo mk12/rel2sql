@@ -1,5 +1,9 @@
 /// Untyped lambda calculus.
 
+use std::fmt;
+
+use ops;
+
 /// A lambda calculus representation of a relational calculus query.
 ///
 /// This structure represents a tuple relation calculus query in the untyped
@@ -30,4 +34,46 @@ pub enum Term<'a> {
     Abs(Vec<&'a str>, Box<Term<'a>>),
     /// An application of a named variable to a tuple of terms.
     App(&'a str, Vec<Term<'a>>),
+}
+
+/// Helper newtype for implementing `Display` on lists of items.
+struct CommaSep<'a, T: 'a>(&'a [T]);
+
+impl<'a, T> fmt::Display for CommaSep<'a, T>
+where
+    T: fmt::Display,
+{
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for (i, item) in self.0.iter().enumerate() {
+            if i != 0 {
+                write!(f, ", ")?;
+            }
+            item.fmt(f)?
+        }
+        Ok(())
+    }
+}
+
+impl<'a> fmt::Display for Query<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{{({}) : {}}}", CommaSep(&self.tuple), self.formula)
+    }
+}
+
+impl<'a> fmt::Display for Term<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Term::Const(s) | Term::Var(s) => write!(f, "{}", s),
+            Term::Abs(vars, body) => {
+                write!(f, "exists {} . {}", CommaSep(vars), body)
+            }
+            Term::App(fun, args) => {
+                if OPERATORS.contains(fun) {
+                    write_op(f, fun, args)
+                } else {
+                    write!(f, "{}({})", fun, CommaSep(args))
+                }
+            }
+        }
+    }
 }
