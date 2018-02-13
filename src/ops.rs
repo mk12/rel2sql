@@ -5,6 +5,7 @@
 //! implements a function for displaying them with minimal parenthesization.
 
 use std::collections::HashMap;
+use std::convert::TryFrom;
 use std::fmt;
 
 /// Operator precedence (zero is lowest).
@@ -77,6 +78,30 @@ pub fn precedence(op: &str) -> Option<Precedence> {
 /// Returns the kind of the operator, or None if it is not an operator.
 pub fn kind(op: &str) -> Option<Kind> {
     KIND_MAP.get(op).cloned()
+}
+
+/// The logical operators.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum Logic {
+    /// Negation.
+    Not,
+    /// Conjunction.
+    And,
+    /// Disjunction.
+    Or,
+}
+
+impl<'a> TryFrom<&'a str> for Logic {
+    type Error = ();
+
+    fn try_from(s: &str) -> Result<Logic, ()> {
+        match s {
+            "!" => Ok(Logic::Not),
+            "&" => Ok(Logic::And),
+            "|" => Ok(Logic::Or),
+            _ => Err(()),
+        }
+    }
 }
 
 /// An expression that may need to be parenthesized.

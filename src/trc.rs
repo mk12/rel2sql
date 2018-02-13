@@ -3,9 +3,8 @@
 //! This module defines tuple relational calculus (TRC) data structures and
 //! implements conversions to them from the untyped lambda calculus (see the
 //! [`ulc`] module). This conversion can fail, since TRC distinguishes formulas
-//! from terms, and recognizes predefined logical, comparison, and arithmetic
-//! operators from the [`ops`] module. The final step, conversion to SQL, is
-//! implemented in the [`sql`] module.
+//! from terms, and recognizes predefined operators from the [`ops`] module. The
+//! final step, conversion to SQL, is implemented in the [`sql`] module.
 //!
 //! [`ulc`]: ../ulc/index.html [`ops`]: ../ops/index.html [`sql`]:
 //! ../sql/index.html
@@ -14,7 +13,7 @@ use std::convert::{TryFrom, TryInto};
 use std::fmt;
 use std::error;
 
-use ops::{self, Kind};
+use ops::{self, Kind, Logic};
 use ulc::{self, Term};
 
 /// A query in the tuple relational calculus.
@@ -54,21 +53,10 @@ pub enum Formula<'a> {
     Rel(&'a str, Tuple<'a>),
     /// A predicate applied to a tuple of expressions.
     Pred(&'a str, Tuple<'a>),
-    /// One or two formulas joined by a logical connective.
+    /// One or two formulas joined by a logical operator.
     Logic(Logic, Vec<Formula<'a>>),
     /// A formula exisentially quantified by a list of bound variables.
     Exists(Vec<&'a str>, Box<Formula<'a>>),
-}
-
-/// A logical connective.
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub enum Logic {
-    /// Negation.
-    Not,
-    /// Conjunction.
-    And,
-    /// Disjunction.
-    Or,
 }
 
 /// Error type for conversions to the tuple relational calculus.
@@ -159,24 +147,12 @@ impl<'a> TryFrom<Term<'a>> for Formula<'a> {
             }
             Term::App(fun, args) => match ops::kind(fun) {
                 Some(Kind::Logic) => {
-                    Ok(Formula::Logic(fun.try_into()?, vec_to_vec(args)?))
+                    let op = fun.try_into().or(Err(Error::Internal))?;
+                    Ok(Formula::Logic(op, vec_to_vec(args)?))
                 }
                 Some(Kind::Comp) => Ok(Formula::Pred(fun, vec_to_vec(args)?)),
                 _ => Ok(Formula::Rel(fun, vec_to_vec(args)?)),
             },
-        }
-    }
-}
-
-impl<'a> TryFrom<&'a str> for Logic {
-    type Error = Error<'a>;
-
-    fn try_from(s: &str) -> Result<Logic, Error> {
-        match s {
-            "!" => Ok(Logic::Not),
-            "&" => Ok(Logic::And),
-            "|" => Ok(Logic::Or),
-            _ => Err(Error::Internal),
         }
     }
 }
