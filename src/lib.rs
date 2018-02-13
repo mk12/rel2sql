@@ -1,4 +1,4 @@
-//! Library for working with the tuple relational calculus and SQL.
+//! Library for converting from the tuple relational calculus to SQL.
 
 #![feature(match_default_bindings)]
 #![feature(slice_patterns)]

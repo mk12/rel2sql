@@ -1,4 +1,13 @@
 /// Untyped lambda calculus.
+///
+/// The untyped lambda calculus (ULC) has a simple structure, making it ideal
+/// for parsing and unparsing. For this reason, the relational calculus parser
+/// in "parser.lalrpop" targets ULC. Conversion to the more specific relational
+/// calculus data structures is done as a separate step, implemented in the
+/// [`trc`] module. The current module implements `Display` for unparsing ULC,
+/// which is needed for error messages.
+///
+/// [`trc`]: ../trc/index.html
 
 use std::fmt;
 

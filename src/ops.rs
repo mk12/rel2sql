@@ -1,4 +1,8 @@
 //! Syntactic operators.
+//!
+//! This module defines built-in operators that should be recognized in the
+//! relational calculus. It categorizes them, defines their precedences, and
+//! implements a function for displaying them with minimal parenthesization.
 
 use std::collections::HashMap;
 use std::fmt;

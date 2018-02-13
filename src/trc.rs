@@ -1,4 +1,14 @@
 //! Tuple relational calculus.
+//!
+//! This module defines tuple relational calculus (TRC) data structures and
+//! implements conversions to them from the untyped lambda calculus (see the
+//! [`ulc`] module). This conversion can fail, since TRC distinguishes formulas
+//! from terms, and recognizes predefined logical, comparison, and arithmetic
+//! operators from the [`ops`] module. The final step, conversion to SQL, is
+//! implemented in the [`sql`] module.
+//!
+//! [`ulc`]: ../ulc/index.html [`ops`]: ../ops/index.html [`sql`]:
+//! ../sql/index.html
 
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
@@ -24,7 +34,7 @@ pub struct Query<'a> {
 }
 
 /// A tuple of expressions.
-type Tuple<'a> = Vec<Expression<'a>>;
+pub type Tuple<'a> = Vec<Expression<'a>>;
 
 /// An expression in the tuple relational calculus.
 #[derive(Debug, PartialEq, Eq)]
@@ -170,3 +180,39 @@ impl<'a> TryFrom<&'a str> for Logic {
         }
     }
 }
+
+/*
+impl<'a> Query<'a> {
+    fn is_range_restricted(&self) -> bool {}
+}
+
+impl<'a> Formula<'a> {
+    fn is_range_restricted(&self) -> bool {
+        match self {
+            Formula::Rel(rel, args) =>
+            Formula::Pred(pred, args) =>
+            Formula::Logic(op, args) =>
+            Formula::Exists(vars, body) =>
+        }
+    }
+
+    fn range_restriction(&self) -> Vec<&'a str> {
+        match self {
+            Formula::Rel(rel, args) => args.flat_map(Expression::direct_free_vars).collect(),
+            Formula::Pred(pred, args) =>
+            Formula::Logic(op, args) =>
+            Formula::Exists(vars, body) =>
+        }
+    }
+}
+
+impl<'a> Expression<'a> {
+    fn direct_free_vars(&self) -> Option<&'a str> {
+        if let Expression::Var(name) = self {
+            Some(name)
+        } else {
+            None
+        }
+    }
+}
+*/
