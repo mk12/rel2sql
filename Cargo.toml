@@ -22,7 +22,7 @@ doc = false
 
 [dependencies]
 lalrpop-util = "0.14"
-quick-error = "1.2"
+lazy_static = "1.0"
 regex = "0.2"
 
 [build-dependencies]

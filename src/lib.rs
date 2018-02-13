@@ -5,7 +5,7 @@
 #![feature(try_from)]
 
 #[macro_use]
-extern crate quick_error;
+extern crate lazy_static;
 
 pub mod parser;
 

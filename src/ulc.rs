@@ -68,11 +68,23 @@ impl<'a> fmt::Display for Term<'a> {
                 write!(f, "exists {} . {}", CommaSep(vars), body)
             }
             Term::App(fun, args) => {
-                if OPERATORS.contains(fun) {
-                    write_op(f, fun, args)
+                if let Some(prec) = ops::precedence(fun) {
+                    ops::write_operation(f, fun, prec, args)
                 } else {
                     write!(f, "{}({})", fun, CommaSep(args))
                 }
+            }
+        }
+    }
+}
+
+impl<'a> ops::Parenthesize for Term<'a> {
+    fn precedence(&self) -> ops::Precedence {
+        match self {
+            Term::Const(..) | Term::Var(..) => ops::HIGHEST_PRECEDENCE,
+            Term::Abs(..) => ops::LOWEST_PRECEDENCE,
+            Term::App(fun, _) => {
+                ops::precedence(fun).unwrap_or(ops::HIGHEST_PRECEDENCE)
             }
         }
     }
