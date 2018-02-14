@@ -31,6 +31,8 @@ pub enum JoinKind {
     Inner,
     /// Left join.
     Left,
+    /// Right join.
+    Right,
 }
 
 /// A SQL join clause.

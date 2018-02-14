@@ -6,8 +6,9 @@
 //! from terms, and recognizes predefined operators from the [`ops`] module. The
 //! final step, conversion to SQL, is implemented in the [`sql`] module.
 //!
-//! [`ulc`]: ../ulc/index.html [`ops`]: ../ops/index.html [`sql`]:
-//! ../sql/index.html
+//! [`ulc`]: ../ulc/index.html
+//! [`ops`]: ../ops/index.html
+//! [`sql`]: ../sql/index.html
 
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
