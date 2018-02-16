@@ -15,35 +15,39 @@ use trc;
 
 /// A SQL query.
 pub struct Query<'a> {
-    /// The tuple of terms to select (empty means `*`).
+    /// The tuple of terms to select.
     pub tuple: Vec<Expression<'a>>,
-    /// The table to select from.
-    pub table: &'a str,
-    /// A list of join clauses (table name and "ON" condition).
-    pub joins: Vec<Join<'a>>,
-    /// The "WHERE" clause of the query.
+}
+
+// free var, query ancestor index, table index in FROM, column index
+pub struct Column<'a>(&'a str, u32, u32, u32);
+
+/// .
+pub struct Subquery<'a> {
+    pub cols: Vec<Column<'a>>,
+    pub tables: Vec<Subquery<'a>>,
     pub cond: Formula<'a>,
 }
 
-/// Kinds of SQL joins.
-pub enum JoinKind {
-    /// Inner join.
-    Inner,
-    /// Left join.
-    Left,
-    /// Right join.
-    Right,
-}
+// {(x) : foo(x) & bar(x)}
 
-/// A SQL join clause.
-pub struct Join<'a> {
-    /// The kind of join.
-    pub kind: JoinKind,
-    /// The table to join to.
-    pub table: &'a str,
-    /// The "ON" clause.
-    pub cond: Formula<'a>,
-}
+// SELECT f.a AS x FROM foo as f, bar as b WHERE b.a = f.a;
+
+// SELECT x FROM (SELECT a AS x FROM bar) AS t1, (SELE)]
+
+// table+col index: needs to know order of variables
+// free var name: won't clash
+
+// {(x, y+1) | (Foo(x) /\ Bar(y)) \/ (Foo(y) /\ Bar(x))}
+
+// SELECT t0.x, t0.y + 1
+// FROM
+//  (SELECT t1.x, t1.y
+//    FROM (SELECT t2.x AS x, t3.y AS y FROM Foo AS t2, Bar AS t3) AS t1
+//  UNION
+//    SELECT t.x, t.y
+//    FROM () AS t
+//  ) AS t0;
 
 /// A means of referring to tables in a query by number.
 pub enum Table {
@@ -77,13 +81,87 @@ pub enum Error<'a> {
     Foo(&'a str),
 }
 
+/*
 impl<'a> TryFrom<trc::Query<'a>> for Query<'a> {
     type Error = Error<'a>;
 
     fn try_from(query: trc::Query) -> Result<Query, Error> {
-        Err(Error::Foo(""))
+        Ok(Query {
+            tuple:
+        })
     }
 }
+*/
+
+/*
+impl<'a> TryFrom<trc::Formula<'a>> for Subquery<'a> {
+    type Error = Error<'a>;
+
+    fn try_from(formula: trc::Formula) -> Result<Subquery, Error> {
+        match formula {
+            trc::Formula::Rel(rel, args) => {
+                let conds = vec![];
+                for (i, a) in args.iter().enumerate() {
+                    match a {
+                        trc::Expression::Const(val) => conds.push(Pred("=", vec![Column(0, i), val])),
+                        trc::Expression::Var(name) =>
+                        trc::Expression::App(fun, args) => conds.push(Pred("=", vec![Column(0, i), val]))
+
+                        // {(x) : R(x) & S(x+1)}
+                        // -> rewrite {(x) : exists y . R(x) & S(y) & x=y+1}
+
+                        // select _0 from
+                        //   (select t0._0, t0._1 from
+                        //     (select t0._0, t1._0
+                        //      from (select _0 from R) as t0, (select _0 from S) as t1)
+                        //      where t0._0 = t0._1 + 1)
+                        //    )
+
+                        // rather than have (exists x . ...) wrap a subquery, should be possible to just 
+                        // mutate the list of the inner (or produce a new thing as a function of the old
+                        // one to avoid mutation)
+                        // similary, converting (...) & x=y+1 should just append to its conditions
+                        // i.e. for a given range-restricted formula, rahterh than recursively evaluating children
+                        // and produing a superstrucure on top, can just convert LHS and then modify it based on the
+                        // unconverted LHS
+
+// note: UNION (not UNION ALL), SELECT DISTINCT (not SELECT)
+// config?
+                        // R(x, ...) -> standalone subquery
+                        // a & b -> general case two subqueries, but a & R(...) special case can add to tables of converted a?
+                        // a & x=y   -> both in FV: add to cond;  one in FV: add to vars/tuple
+                        // a | b (FV =) -> union; special case for R(...) | R(...)
+                        // a & !b (FV subset) -> add cond: NOT EXISTS ( ... ) ? // prob: refercing outer vars inside that.. need to link up
+                        // a & P(...) (FB subset) -> add to cond of a
+                        // exists x . a -> remove x from vars/tuple
+                        
+                        // note: if And is a list of all conjuncts, could try all possible pairs to find
+                        // one that works.... right now though I would just do both sides, i.e.
+                        // phi & x=y
+                        // x=y & phi
+                        // but (((a&b)&c)&d)&e will not work if actually RR by a&(b&(c&(d&e)))
+                    }
+                } // R(x, y) & !S(x)
+            }
+            trc::Formula::Pred(pred, args) => {
+                Err(Error::Foo("a"))
+            }
+            trc::Formula::Logic(op, args) => {
+                Err(Error::Foo("a"))
+            }
+            trc::Formula::Exists(vars, body) => {
+                Err(Error::Foo("a"))
+            }
+        }
+    }
+}
+
+// UNDECIDABLE!
+// stick strictly to range-restricted, then it can be done recursively, each step
+// generating a subquery that gets all its free variables.
+// can try (lhs,rhs) and (rhs,lhs) but otherwise assume user enters RR relcalc.
+// challenge: Simplify this SQL with all these SELECT .. FROM (SELECT FROM .. ) as t
+// where subquery is unnecessary.
 
 // params:
 // prettyindenent / one line
@@ -93,3 +171,5 @@ impl<'a> TryFrom<trc::Query<'a>> for Query<'a> {
 //         write!(f, "SELECT DISTINCT {}")
 //     }
 // }
+
+*/
