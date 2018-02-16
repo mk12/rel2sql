@@ -5,8 +5,8 @@
 //! implements a function for displaying them with minimal parenthesization.
 
 use std::collections::HashMap;
-use std::convert::TryFrom;
 use std::fmt;
+use std::str::FromStr;
 
 /// Operator precedence (zero is lowest).
 pub type Precedence = u32;
@@ -91,10 +91,20 @@ pub enum Logic {
     Or,
 }
 
-impl<'a> TryFrom<&'a str> for Logic {
-    type Error = ();
+impl From<Logic> for &'static str {
+    fn from(op: Logic) -> &'static str {
+        match op {
+            Logic::Not => "!",
+            Logic::And => "&",
+            Logic::Or => "|",
+        }
+    }
+}
 
-    fn try_from(s: &str) -> Result<Logic, ()> {
+impl<'a> FromStr for Logic {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Logic, ()> {
         match s {
             "!" => Ok(Logic::Not),
             "&" => Ok(Logic::And),
@@ -141,5 +151,36 @@ where
             (true, true) => write!(f, "({}) {} ({})", lhs, op, rhs),
         },
         _ => panic!("Invalid number of arguemnts"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use std::collections::HashSet;
+    use std::convert::TryInto;
+
+    #[test]
+    fn lowest_precedence() {
+        let min = *PRECEDENCE_MAP.values().min().unwrap();
+        assert!(LOWEST_PRECEDENCE < min);
+    }
+
+    #[test]
+    fn highest_precedence() {
+        let max = *PRECEDENCE_MAP.values().max().unwrap();
+        assert!(HIGHEST_PRECEDENCE > max);
+    }
+
+    #[test]
+    fn logical_operators() {
+        for &tier in PRECEDENCE_LIST.iter() {
+            for &op in tier {
+                let by_kind = kind(op) == Some(Kind::Logic);
+                let by_into = op.parse::<Logic>().is_ok();
+                assert_eq!(by_kind, by_into, "For operator {}", op);
+            }
+        }
     }
 }
