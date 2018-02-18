@@ -13,21 +13,150 @@ use std::fmt;
 use ops::Logic;
 use trc;
 
-/// A SQL query.
+/// A SQL query that selects values of free variables.
 pub struct Query<'a> {
-    /// The tuple of terms to select.
-    pub tuple: Vec<Expression<'a>>,
+    /// The columns to select.
+    pub cols: Vec<(&'a str, Column)>,
+    /// The tables to select from.
+    pub tables: Vec<Table<'a>>,
+    /// The "WHERE" clause, as a vector of conjuncts.
+    pub cond: Vec<Formula<'a>>,
 }
 
-// free var, query ancestor index, table index in FROM, column index
-pub struct Column<'a>(&'a str, u32, u32, u32);
-
-/// .
-pub struct Subquery<'a> {
-    pub cols: Vec<Column<'a>>,
-    pub tables: Vec<Subquery<'a>>,
-    pub cond: Formula<'a>,
+/// A SQL table expression.
+pub enum Table<'a> {
+    /// A named table in the database.
+    Named(&'a str),
+    /// A table produced by a subquery.
+    Query(Query<'a>),
 }
+
+// A group of indices specifying a column in a query.
+pub struct Column {
+    /// Index of the query: 0 is current, 1 is first parent, etc.
+    pub query_index: usize,
+    /// Index of the table in the query's `tables` vector.
+    pub table_index: usize,
+    /// Index of the column in the table's `cols` vector.
+    pub column_index: usize,
+}
+
+/// An expression in a SQL query.
+pub enum Expression<'a> {
+    /// A string constant.
+    Const(&'a str),
+    /// A column from a table.
+    Column(Column),
+    /// A function applied to a tuple of expressions.
+    App(&'a str, Vec<Expression<'a>>),
+}
+
+/// A formula in a SQL query.
+pub enum Formula<'a> {
+    /// A predicate applied to a tuple of expressions.
+    Pred(&'a str, Vec<Expression<'a>>),
+    /// One or two formulas joined by a logical operator.
+    Logic(Logic, Vec<Formula<'a>>),
+    /// Existence operator, stating that a query has nonempty results.
+    Exists(Box<Query<'a>>),
+}
+
+/// Error type for conversions to SQL.
+pub enum Error<'a> {
+    NotRangeRestricted(&'a str),
+}
+
+impl<'a> Query<'a> {
+    // TODO
+}
+
+impl<'a> TryFrom<trc::Formula<'a>> for Query<'a> {
+    type Error = Error<'a>;
+
+    fn try_from(formula: trc::Formula) -> Result<Query, Error> {
+        match formula {
+            trc::Formula::Rel(rel, args) => {
+                let mut query = Query {
+                    cols: vec![],
+                    tables: vec![Table::Named(rel)],
+                    cond: vec![],
+                };
+                for (i, arg) in args.iter().enumerate() {
+                    match arg {
+                        trc::Expression::Const(val) => {
+                            query.cond.push(Formula::Pred(
+                                "=",
+                                vec![
+                                    Expression::Column(Column {
+                                        query_index: 0,
+                                        table_index: 0,
+                                        column_index: i,
+                                    }),
+                                    Expression::Const(val),
+                                ],
+                            ))
+                        }
+                        trc::Expression::Var(name) => {
+                            // if name already in cols free vars:
+                            // then: add conjunct making them equal
+                            // else: add col for this free var
+                            unimplemented!()
+                        }
+                        trc::Expression::App(fun, args) => {}
+                    }
+                }
+                unimplemented!()
+            }
+            trc::Formula::Logic(Logic::And, vec![lhs, rhs]) => unimplemented!(),
+            trc::Formula::Pred(fun, args) => unimplemented!(),
+            trc::Formula::Logic(op, args) => unimplemented!(),
+            trc::Formula::Exists(vars, body) => unimplemented!(),
+        }
+    }
+}
+
+// R(...)
+// A & B
+// A & x=y (intersection)
+// A | B  (eq)
+// A & !B (subset)
+// A & p(...) (subset)
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn it_works() {
+        assert_eq!(2, 2);
+    }
+}
+
+// TODO:
+// - helper for Equality expr
+// - maybe don't include free var name in Column
+
+// advantage of Query->Query, Formula->Subquery
+// but want to mutate at end to avoid wrapper query
+
+// KEY POINT:
+// not pure divide and conquer.
+// instead, divide, conquer LHS, and then mutate that result based on RHS of &.
+// (or vice versa)
+// (l,r) or (r,l) is more powerful than I thought -> if one fails, it tries the
+// other, so (((a&b)&c)&d)&e parses as:
+//       *            just by swapping L/R branches of this tree one at a time,
+//      / \            you are effectively swapping positions in a linked list
+//     / \ e          (since it is a degenreate, anti fox news tree), which means
+//    / \ d          you can achieve all of the 5! orders (I think) ... or maybe
+//   /\ c            not .. well you swap or not 5 times so 2^5 = 32 possible
+//  a b              orders? Let's try a smaller example
+//
+//        *         3! = 6 would be abc acb bac bca cab cba
+//       / \        2^2 = 4 would be...
+//      *  c           abc bac cab cba --- missing acb bca
+//     / \
+//    a  b
 
 // {(x) : foo(x) & bar(x)}
 
@@ -48,38 +177,6 @@ pub struct Subquery<'a> {
 //    SELECT t.x, t.y
 //    FROM () AS t
 //  ) AS t0;
-
-/// A means of referring to tables in a query by number.
-pub enum Table {
-    /// The table specified in the "FROM" clause.
-    Primary,
-    /// One of the joined tables, identified by a zero-based index.
-    Joined(u32),
-}
-
-/// An expression in a SQL query.
-pub enum Expression<'a> {
-    /// A string constant.
-    Const(&'a str),
-    /// A table column, identified by a zero-based index.
-    Col(Table, u32),
-    /// A function applied to a tuple of terms.
-    App(&'a str, Vec<Expression<'a>>),
-}
-
-/// A formula in a SQL query.
-pub enum Formula<'a> {
-    /// A predicate applied to a tuple of expressions.
-    Pred(&'a str, Vec<Expression<'a>>),
-    /// One or two formulas joined by a logical operator.
-    Logic(Logic, Vec<Formula<'a>>),
-    /// Existence operator, stating that a query has nonempty results.
-    Exists(Box<Query<'a>>),
-}
-
-pub enum Error<'a> {
-    Foo(&'a str),
-}
 
 /*
 impl<'a> TryFrom<trc::Query<'a>> for Query<'a> {
@@ -140,6 +237,7 @@ impl<'a> TryFrom<trc::Formula<'a>> for Subquery<'a> {
                         // phi & x=y
                         // x=y & phi
                         // but (((a&b)&c)&d)&e will not work if actually RR by a&(b&(c&(d&e)))
+                        // --> YES IT WILL (see above about 2^n not n! permutations)
                     }
                 } // R(x, y) & !S(x)
             }
