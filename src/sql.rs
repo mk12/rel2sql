@@ -10,7 +10,6 @@
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
 
-use ops::Logic;
 use trc;
 
 /// A SQL query that selects values of free variables.
@@ -50,7 +49,7 @@ pub enum Expression<'a> {
     /// A function applied to a tuple of expressions.
     App(&'a str, Vec<Expression<'a>>),
 }
-
+type Logic = u32;
 /// A formula in a SQL query.
 pub enum Formula<'a> {
     /// A predicate applied to a tuple of expressions.
@@ -70,6 +69,7 @@ impl<'a> Query<'a> {
     // TODO
 }
 
+/*
 impl<'a> TryFrom<trc::Formula<'a>> for Query<'a> {
     type Error = Error<'a>;
 
@@ -107,13 +107,15 @@ impl<'a> TryFrom<trc::Formula<'a>> for Query<'a> {
                 }
                 unimplemented!()
             }
-            trc::Formula::Logic(Logic::And, vec![lhs, rhs]) => unimplemented!(),
+            trc::Formula::Logic(Logic::And, _) => unimplemented!(),
             trc::Formula::Pred(fun, args) => unimplemented!(),
             trc::Formula::Logic(op, args) => unimplemented!(),
             trc::Formula::Exists(vars, body) => unimplemented!(),
         }
     }
 }
+
+*/
 
 // R(...)
 // A & B

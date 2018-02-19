@@ -3,8 +3,9 @@
 //! This module defines tuple relational calculus (TRC) data structures and
 //! implements conversions to and from the untyped lambda calculus (see the
 //! [`ulc`] module). The conversion from ULC can fail, since TRC distinguishes
-//! formulas from terms, and recognizes predefined operators from the [`ops`]
-//! module. Conversion back to ULC always succeeds.
+//! formulas from terms (though there is no typechecking beyond this), and
+//! recognizes predefined operators from the [`ops`] module. Conversion back to
+//! ULC always succeeds.
 //!
 //! [`ulc`]: ../ulc/index.html
 //! [`ops`]: ../ops/index.html
@@ -13,7 +14,7 @@ use std::convert::{TryFrom, TryInto};
 use std::fmt;
 use std::error;
 
-use ops::{self, Kind, Logic};
+use ops::{self, Kind};
 use ulc::{self, Term};
 
 /// A query in the tuple relational calculus.
@@ -53,8 +54,14 @@ pub enum Formula<'a> {
     Rel(&'a str, Tuple<'a>),
     /// A predicate applied to a tuple of expressions.
     Pred(&'a str, Tuple<'a>),
-    /// One or two formulas joined by a logical operator.
-    Logic(Logic, Vec<Formula<'a>>),
+    /// Equality of two expressions (special case of Pred).
+    Equal(Box<Expression<'a>>, Box<Expression<'a>>),
+    /// Negation of a formula.
+    Not(Box<Formula<'a>>),
+    /// Conjunction of two formulas.
+    And(Box<Formula<'a>>, Box<Formula<'a>>),
+    /// Disjunction of two formulas.
+    Or(Box<Formula<'a>>, Box<Formula<'a>>),
     /// A formula exisentially quantified by a list of bound variables.
     Exists(Vec<&'a str>, Box<Formula<'a>>),
 }
@@ -67,7 +74,7 @@ pub enum Error<'a> {
     /// Failure of a term to convert to a formula.
     NotFormula(Term<'a>),
     /// An unexpected internal error.
-    Internal,
+    Internal(&'static str),
 }
 
 impl<'a> error::Error for Error<'a> {
@@ -75,7 +82,7 @@ impl<'a> error::Error for Error<'a> {
         match self {
             Error::NotExpression(..) => "Not an expression",
             Error::NotFormula(..) => "Not a formula",
-            Error::Internal => "Internal error",
+            Error::Internal(info) => info,
         }
     }
 }
@@ -89,7 +96,9 @@ impl<'a> fmt::Display for Error<'a> {
             Error::NotFormula(term) => {
                 write!(f, "Expected a formula: {}", term)
             }
-            Error::Internal => write!(f, "An internal error occurred"),
+            Error::Internal(info) => {
+                write!(f, "An internal error occurred: {}", info)
+            }
         }
     }
 }
@@ -104,13 +113,50 @@ where
 
 /// Converts a vector of type to another using `TryInto`.
 ///
-/// Peforms the conversion using the `TryInto` trait. Returns `Ok` if all
-/// elements convert successfully; otherwise, returns the first `Err`.
+/// Returns `Ok` if all elements convert successfully. Otherwise, returns the
+/// `Err` for the first failed conversion.
 fn try_vec_to_vec<'a, T, U>(v: Vec<T>) -> Result<Vec<U>, Error<'a>>
 where
     T: TryInto<U, Error = Error<'a>>,
 {
     v.into_iter().map(TryInto::try_into).collect()
+}
+
+/// Converts a vector of one `T` to a `Box<U>`, and constructs `V` with it.
+///
+/// Returns `Err` if the vector has the wrong number of elements, or if
+/// conversion from `T` to `U` using the `TryInto` trait fails.
+fn try_vec_to_box<'a, T, U, V, F>(make: F, args: Vec<T>) -> Result<V, Error<'a>>
+where
+    T: TryInto<U, Error = Error<'a>>,
+    F: FnOnce(Box<U>) -> V,
+{
+    let mut it = args.into_iter();
+    match (it.next(), it.next()) {
+        (Some(arg), None) => Ok(make(box arg.try_into()?)),
+        _ => Err(Error::Internal("Wrong number of arguments")),
+    }
+}
+
+/// Converts a vector of two `T` to two `Box<U>`, and constructs `V` with them.
+///
+/// Returns `Err` if the vector has the wrong number of elements, or if
+/// conversion from `T` to `U` using the `TryInto` trait fails.
+fn try_vec_to_box_2<'a, T, U, V, F>(
+    make: F,
+    args: Vec<T>,
+) -> Result<V, Error<'a>>
+where
+    T: TryInto<U, Error = Error<'a>>,
+    F: FnOnce(Box<U>, Box<U>) -> V,
+{
+    let mut it = args.into_iter();
+    match (it.next(), it.next(), it.next()) {
+        (Some(arg1), Some(arg2), None) => {
+            Ok(make(box arg1.try_into()?, box arg2.try_into()?))
+        }
+        _ => Err(Error::Internal("Wrong number of arguments")),
+    }
 }
 
 impl<'a> TryFrom<ulc::Query<'a>> for Query<'a> {
@@ -132,6 +178,9 @@ impl<'a> TryFrom<Term<'a>> for Expression<'a> {
             Term::Const(val) => Ok(Expression::Const(val)),
             Term::Var(name) => Ok(Expression::Var(name)),
             Term::Abs(..) => Err(Error::NotExpression(term)),
+            Term::App(fun, _) if ops::kind(fun) == Some(Kind::Formula) => {
+                Err(Error::NotExpression(term))
+            }
             Term::App(fun, args) => {
                 Ok(Expression::App(fun, try_vec_to_vec(args)?))
             }
@@ -144,25 +193,23 @@ impl<'a> TryFrom<Term<'a>> for Formula<'a> {
 
     fn try_from(term: Term) -> Result<Formula, Error> {
         match term {
-            Term::Const(..) => Err(Error::NotFormula(term)),
-            Term::Var(..) => Err(Error::NotFormula(term)),
-            Term::Abs(vars, body) => {
-                let body: Formula = (*body).try_into()?;
-                Ok(Formula::Exists(vars, Box::new(body)))
+            Term::Const(..) | Term::Var(..) => Err(Error::NotFormula(term)),
+            Term::Abs(vars, box body) => {
+                Ok(Formula::Exists(vars, box body.try_into()?))
             }
             // The Term::App arm has to be split to please the borrow checker,
             // since we move the term into the error.
-            Term::App(fun, _) if ops::kind(fun) == Some(Kind::Arith) => {
+            Term::App(fun, _) if ops::kind(fun) == Some(Kind::Expression) => {
                 Err(Error::NotFormula(term))
             }
             Term::App(fun, args) => match ops::kind(fun) {
-                Some(Kind::Logic) => {
-                    let op = fun.parse().or(Err(Error::Internal))?;
-                    Ok(Formula::Logic(op, try_vec_to_vec(args)?))
-                }
-                Some(Kind::Comp) => {
-                    Ok(Formula::Pred(fun, try_vec_to_vec(args)?))
-                }
+                Some(Kind::Formula) => match fun {
+                    ops::NOT => try_vec_to_box(Formula::Not, args),
+                    ops::AND => try_vec_to_box_2(Formula::And, args),
+                    ops::OR => try_vec_to_box_2(Formula::Or, args),
+                    ops::EQ => try_vec_to_box_2(Formula::Equal, args),
+                    _ => Ok(Formula::Pred(fun, try_vec_to_vec(args)?)),
+                },
                 _ => Ok(Formula::Rel(fun, try_vec_to_vec(args)?)),
             },
         }
@@ -194,11 +241,17 @@ impl<'a> From<Formula<'a>> for Term<'a> {
             Formula::Rel(fun, args) | Formula::Pred(fun, args) => {
                 Term::App(fun, vec_to_vec(args))
             }
-            Formula::Logic(op, args) => Term::App(op.into(), vec_to_vec(args)),
-            Formula::Exists(vars, body) => {
-                let body: Term = (*body).into();
-                Term::Abs(vars, Box::new(body))
+            Formula::Equal(box lhs, box rhs) => {
+                Term::App(ops::EQ, vec![lhs.into(), rhs.into()])
             }
+            Formula::Not(box arg) => Term::App(ops::NOT, vec![arg.into()]),
+            Formula::And(box lhs, box rhs) => {
+                Term::App(ops::AND, vec![lhs.into(), rhs.into()])
+            }
+            Formula::Or(box lhs, box rhs) => {
+                Term::App(ops::OR, vec![lhs.into(), rhs.into()])
+            }
+            Formula::Exists(vars, box body) => Term::Abs(vars, box body.into()),
         }
     }
 }
@@ -236,23 +289,34 @@ mod tests {
     #[test]
     fn app_to_pred() {
         assert_eq!(
-            Term::App("=", vec![Term::Var("x"), Term::Var("y")]).try_into(),
+            Term::App("<", vec![Term::Var("x"), Term::Var("y")]).try_into(),
             Ok(Formula::Pred(
-                "=",
+                "<",
                 vec![Expression::Var("x"), Expression::Var("y")]
             ))
         );
     }
 
     #[test]
-    fn app_to_logic() {
+    fn app_to_equal() {
+        assert_eq!(
+            Term::App("=", vec![Term::Var("x"), Term::Var("y")]).try_into(),
+            Ok(Formula::Equal(
+                box Expression::Var("x"),
+                box Expression::Var("y")
+            ))
+        );
+    }
+
+    #[test]
+    fn app_to_not() {
         assert_eq!(
             Term::App("!", vec![Term::App("r", vec![Term::Var("x")])])
                 .try_into(),
-            Ok(Formula::Logic(
-                Logic::Not,
-                vec![Formula::Rel("r", vec![Expression::Var("x")])]
-            ))
+            Ok(Formula::Not(box Formula::Rel(
+                "r",
+                vec![Expression::Var("x")]
+            )))
         );
     }
 
@@ -287,5 +351,35 @@ mod tests {
             Err(Error::NotFormula(..)) => (),
             _ => panic!(),
         }
+    }
+
+    #[test]
+    fn const_to_const_term() {
+        let term: Term = Expression::Const("x").into();
+        assert_eq!(term, Term::Const("x"));
+    }
+
+    #[test]
+    fn var_to_var_term() {
+        let term: Term = Expression::Var("x").into();
+        assert_eq!(term, Term::Var("x"));
+    }
+
+    #[test]
+    fn and_to_app() {
+        let term: Term = Formula::And(
+            box Formula::Rel("r", vec![Expression::Var("x")]),
+            box Formula::Pred("q", vec![Expression::Const("y")]),
+        ).into();
+        assert_eq!(
+            term,
+            Term::App(
+                "&",
+                vec![
+                    Term::App("r", vec![Term::Var("x")]),
+                    Term::App("q", vec![Term::Const("y")]),
+                ]
+            )
+        );
     }
 }

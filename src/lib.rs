@@ -1,5 +1,7 @@
 //! Library for converting from the tuple relational calculus to SQL.
 
+#![feature(box_patterns)]
+#![feature(box_syntax)]
 #![feature(match_default_bindings)]
 #![feature(slice_patterns)]
 #![feature(try_from)]

@@ -6,21 +6,38 @@
 
 use std::collections::HashMap;
 use std::fmt;
-use std::str::FromStr;
 
 /// Operator precedence (zero is lowest).
 pub type Precedence = u32;
 
-/// Kinds of operators.
+/// Kinds of values that operators can produce.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Kind {
-    /// A logical operator.
-    Logic,
-    /// A binary comparison operator.
-    Comp,
-    /// An arithmetic operator.
-    Arith,
+    /// An expression-valued operator.
+    Expression,
+    /// A formula-valued operator.
+    Formula,
 }
+
+/// String constants for the operators.
+pub mod consts {
+    pub const NOT: &str = "!";
+    pub const AND: &str = "&";
+    pub const OR: &str = "|";
+    pub const EQ: &str = "=";
+    pub const NEQ: &str = "!=";
+    pub const LT: &str = "<";
+    pub const GT: &str = ">";
+    pub const LTE: &str = "<=";
+    pub const GTE: &str = ">=";
+    pub const ADD: &str = "+";
+    pub const SUB: &str = "-";
+    pub const MULT: &str = "*";
+    pub const DIV: &str = "/";
+    pub const MOD: &str = "%";
+}
+
+pub use self::consts::*;
 
 /// The lowest operator precedence, reserved for special use.
 pub const LOWEST_PRECEDENCE: Precedence = 0;
@@ -30,20 +47,19 @@ pub const HIGHEST_PRECEDENCE: Precedence = 8;
 
 /// List of precedence tiers, in order of increasing precedence.
 const PRECEDENCE_LIST: [&[&str]; (HIGHEST_PRECEDENCE - 1) as usize] = [
-    &["|"],
-    &["&"],
-    &["=", "!="],
-    &["<", "<=", ">", ">="],
-    &["+", "-"],
-    &["*", "/", "%"],
-    &["!"],
+    &[OR],
+    &[AND],
+    &[EQ, NEQ],
+    &[LT, LTE, GT, GTE],
+    &[ADD, SUB],
+    &[MULT, DIV, MOD],
+    &[NOT],
 ];
 
 /// List of operators organized by their kind.
-const KIND_LIST: [(Kind, &[&str]); 3] = [
-    (Kind::Logic, &["|", "&", "!"]),
-    (Kind::Comp, &["=", "!=", "<", "<=", ">", ">="]),
-    (Kind::Arith, &["+", "-", "*", "/", "%"]),
+const KIND_LIST: [(Kind, &[&str]); 2] = [
+    (Kind::Expression, &[ADD, SUB, MULT, DIV, MOD]),
+    (Kind::Formula, &[NOT, AND, OR, EQ, NEQ, LT, LTE, GT, GTE]),
 ];
 
 lazy_static! {
@@ -78,40 +94,6 @@ pub fn precedence(op: &str) -> Option<Precedence> {
 /// Returns the kind of the operator, or None if it is not an operator.
 pub fn kind(op: &str) -> Option<Kind> {
     KIND_MAP.get(op).cloned()
-}
-
-/// The logical operators.
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub enum Logic {
-    /// Negation.
-    Not,
-    /// Conjunction.
-    And,
-    /// Disjunction.
-    Or,
-}
-
-impl From<Logic> for &'static str {
-    fn from(op: Logic) -> &'static str {
-        match op {
-            Logic::Not => "!",
-            Logic::And => "&",
-            Logic::Or => "|",
-        }
-    }
-}
-
-impl<'a> FromStr for Logic {
-    type Err = ();
-
-    fn from_str(s: &str) -> Result<Logic, ()> {
-        match s {
-            "!" => Ok(Logic::Not),
-            "&" => Ok(Logic::And),
-            "|" => Ok(Logic::Or),
-            _ => Err(()),
-        }
-    }
 }
 
 /// An expression that may need to be parenthesized.
@@ -174,13 +156,7 @@ mod tests {
     }
 
     #[test]
-    fn logical_operators() {
-        for &tier in PRECEDENCE_LIST.iter() {
-            for &op in tier {
-                let by_kind = kind(op) == Some(Kind::Logic);
-                let by_into = op.parse::<Logic>().is_ok();
-                assert_eq!(by_kind, by_into, "For operator {}", op);
-            }
-        }
+    fn number_of_operators() {
+        assert_eq!(PRECEDENCE_MAP.len(), KIND_MAP.len());
     }
 }
