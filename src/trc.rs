@@ -66,6 +66,27 @@ pub enum Formula<'a> {
     Exists(Vec<&'a str>, Box<Formula<'a>>),
 }
 
+impl<'a> Expression<'a> {
+    /// Returns an iterator over the free variables of the expression.
+    pub fn free_vars(&self) -> ! {
+        panic!()
+    }
+}
+
+impl<'a> Formula<'a> {
+    /// Returns true if the formula is a Rel, or has Rel anywhere within it.
+    pub fn has_rel(&self) -> bool {
+        match self {
+            Formula::Rel(..) => true,
+            Formula::Not(box f) | Formula::Exists(_, box f) => f.has_rel(),
+            Formula::And(box f1, box f2) | Formula::Or(box f1, box f2) => {
+                f1.has_rel() || f2.has_rel()
+            }
+            _ => false,
+        }
+    }
+}
+
 /// Error type for conversions to the tuple relational calculus.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Error<'a> {

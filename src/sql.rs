@@ -16,11 +16,14 @@ use trc;
 pub struct Query<'a> {
     /// The columns to select.
     pub cols: Vec<(&'a str, Column)>,
-    /// The tables to select from.
-    pub tables: Vec<Table<'a>>,
-    /// The "WHERE" clause, as a vector of conjuncts.
-    pub cond: Vec<Formula<'a>>,
+    /// The tables to select from and their "ON" clauses.
+    pub tables: Vec<(Table<'a>, Condition<'a>)>,
+    /// The "WHERE" clause.
+    pub cond: Condition<'a>,
 }
+
+/// A vector of conjuncts.
+type Condition<'a> = Vec<Formula<'a>>;
 
 /// A SQL table expression.
 pub enum Table<'a> {
@@ -69,7 +72,6 @@ impl<'a> Query<'a> {
     // TODO
 }
 
-/*
 impl<'a> TryFrom<trc::Formula<'a>> for Query<'a> {
     type Error = Error<'a>;
 
@@ -78,7 +80,7 @@ impl<'a> TryFrom<trc::Formula<'a>> for Query<'a> {
             trc::Formula::Rel(rel, args) => {
                 let mut query = Query {
                     cols: vec![],
-                    tables: vec![Table::Named(rel)],
+                    tables: vec![(Table::Named(rel), vec![])],
                     cond: vec![],
                 };
                 for (i, arg) in args.iter().enumerate() {
@@ -107,22 +109,79 @@ impl<'a> TryFrom<trc::Formula<'a>> for Query<'a> {
                 }
                 unimplemented!()
             }
-            trc::Formula::Logic(Logic::And, _) => unimplemented!(),
             trc::Formula::Pred(fun, args) => unimplemented!(),
-            trc::Formula::Logic(op, args) => unimplemented!(),
+            trc::Formula::Equal(lhs, rhs) => unimplemented!(),
+            trc::Formula::Not(arg) => unimplemented!(),
+            trc::Formula::And(lhs, rhs) => unimplemented!(),
+            trc::Formula::Or(lhs, rhs) => unimplemented!(),
             trc::Formula::Exists(vars, body) => unimplemented!(),
         }
     }
 }
 
-*/
-
 // R(...)
-// A & B
+//     const -> append = conjunct
+//     var ->
+//         new: add select free var
+//         recur: append = conjunct
+//     app -> fail
+// A & R(...)
+//     recur on A, then
+//         (special case if R in A's tables) -> just don't add! UNLESS SELF-JOIN.
+//         1. add R to A's tables
+//         2. go through each
+//             const -> append = conjunct
+//             var ->
+//                 new: add select free var
+//                 recur (from any): append = conjunct
+//             app ->
+//                 all recur: append = conjunct
 // A & x=y (intersection)
-// A | B  (eq)
+//     recur on A, then
+//         x in, y not: select free var y as x from A
+//         y in, x not: symmetrical
+//         x in, y in: append = conjunct to A
+//         neither in: fail
+//         ("x not" <=> "f(x)")
 // A & !B (subset)
+//     recur on A, recur on B, then append conjunct:
+//         NOT EXISTS (<B> append = conjuncts)
+//         (and check subset explicitly)
 // A & p(...) (subset)
+//     append conjunct
+// A & B
+//     recur on A, recur on B, then
+//         SELECT a1, a2, b1, b2, ... FROM (SELECT ...) AS _, (SELECT ...) AS _
+//         for each intersection, append = conjunct
+//     if B not RR, see if it is just a complicated predicate (no rels, no new vars)
+// A | B  (eq)
+//     recur on A and B, get vars in same order, union
+//     (check they have same vars!)
+// exists x. A
+//     recur on A, remove x from cols
+
+// R(x,5) | R(x,6)
+// exists y . R(x,y) & (y=5|y=6)
+
+// idea: select from t1, t2, t3 could be changed to joins, but woudl need to
+// remember which conjuncts are the ON conditions
+// could also optimize semi-join if table is not referenced in cols
+
+// Q: Should it be:
+// 1. Query { tables: Vec<Table::Named | Table::Query{ query }>}, ... or
+// 2. Query::Query { tables: Vec<Query>} | Query::Base/Named
+// (1) because (2) doesn't make sense in the context of SELECT .. FROM t1, t2
+// -- multiple base tables selected from.
+
+// idea: treat R(...) & (| & | && )
+//                      ^^^^^^^^^^^
+//  as one big predicate if all subset (no new vars)
+
+// note: no typechking. but R(x) | R(x,y) is incorrect!
+
+//(R(x) & S(x)) & ((R(f(x)) & S(f(x))))
+
+/// R(x,y) & (p(1) | q(2) & ((z(3) & w(2)) | q(4))
 
 #[cfg(test)]
 mod tests {
