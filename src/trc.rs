@@ -10,6 +10,7 @@
 //! [`ulc`]: ../ulc/index.html
 //! [`ops`]: ../ops/index.html
 
+use std::collections::HashSet;
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
 use std::error;
@@ -67,13 +68,61 @@ pub enum Formula<'a> {
 }
 
 impl<'a> Expression<'a> {
-    /// Returns an iterator over the free variables of the expression.
-    pub fn free_vars(&self) -> ! {
-        panic!()
+    /// Returns the free variables of the expression.
+    pub fn free_vars(&self) -> HashSet<&str> {
+        let mut set = HashSet::new();
+        self.free_vars_helper(&mut set);
+        set
+    }
+
+    /// Helper function for `free_vars`.
+    fn free_vars_helper(&self, set: &mut HashSet<&'a str>) {
+        match self {
+            Expression::Var(name) => {
+                set.insert(name);
+            }
+            Expression::App(_, args) => for arg in args {
+                arg.free_vars_helper(set)
+            },
+            _ => (),
+        }
     }
 }
 
 impl<'a> Formula<'a> {
+    /// Returns the free variables of the formula.
+    pub fn free_vars(&self) -> HashSet<&str> {
+        let mut set = HashSet::new();
+        self.free_vars_helper(&mut set);
+        set
+    }
+
+    /// Helper function for `free_vars`.
+    fn free_vars_helper(&self, set: &mut HashSet<&'a str>) {
+        match self {
+            Formula::Rel(_, args) | Formula::Pred(_, args) => for arg in args {
+                arg.free_vars_helper(set);
+            },
+            Formula::Equal(box lhs, box rhs) => {
+                lhs.free_vars_helper(set);
+                rhs.free_vars_helper(set);
+            }
+            Formula::Not(box arg) => {
+                arg.free_vars_helper(set);
+            }
+            Formula::And(box lhs, box rhs) | Formula::Or(box lhs, box rhs) => {
+                lhs.free_vars_helper(set);
+                rhs.free_vars_helper(set);
+            }
+            Formula::Exists(vars, box body) => {
+                body.free_vars_helper(set);
+                for var in vars {
+                    set.remove(var);
+                }
+            }
+        }
+    }
+
     /// Returns true if the formula is a Rel, or has Rel anywhere within it.
     pub fn has_rel(&self) -> bool {
         match self {
