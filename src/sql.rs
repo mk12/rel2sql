@@ -7,40 +7,43 @@
 //!
 //! [`trc`]: ../trc/index.html
 
+use std::collections::{HashMap, HashSet};
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
 
 use trc;
+use ulc;
 
-/// A SQL query that selects values of free variables.
+/// A top-level SQL query.
 pub struct Query<'a> {
-    /// The columns to select.
-    pub cols: Vec<(&'a str, Column)>,
-    /// The tables to select from and their "ON" clauses.
-    pub tables: Vec<(Table<'a>, Condition<'a>)>,
-    /// The "WHERE" clause.
-    pub cond: Condition<'a>,
+    /// The expressions to select.
+    exprs: Vec<Expression<'a>>,
+    /// Query to get free variables from.
+    union: Union<'a>
 }
 
-/// A vector of conjuncts.
-type Condition<'a> = Vec<Formula<'a>>;
+/// A query that selects the values of free variables.
+struct Union<'a> {
+    /// The free variables to select.
+    vars: HashSet<&'a str>,
+    /// The queries to combine with "UNION".
+    sels: Vec<Select<'a>>,
+}
+
+/// A query that joins one or more tables.
+struct Select<'a> {
+    /// The tables to select from.
+    tables: Vec<Table<'a>>,
+    /// The "WHERE" clause, as a vector of conjuncts.
+    cond: Vec<Formula<'a>>,
+}
 
 /// A SQL table expression.
-pub enum Table<'a> {
+enum Table<'a> {
     /// A named table in the database.
-    Named(&'a str),
+    Named(&'a str, HashMap<&'a str, usize>),
     /// A table produced by a subquery.
-    Query(Query<'a>),
-}
-
-// A group of indices specifying a column in a query.
-pub struct Column {
-    /// Index of the query: 0 is current, 1 is first parent, etc.
-    pub query_index: usize,
-    /// Index of the table in the query's `tables` vector.
-    pub table_index: usize,
-    /// Index of the column in the table's `cols` vector.
-    pub column_index: usize,
+    Sub(Union<'a>),
 }
 
 /// An expression in a SQL query.
@@ -52,41 +55,59 @@ pub enum Expression<'a> {
     /// A function applied to a tuple of expressions.
     App(&'a str, Vec<Expression<'a>>),
 }
-type Logic = u32;
+
 /// A formula in a SQL query.
 pub enum Formula<'a> {
     /// A predicate applied to a tuple of expressions.
     Pred(&'a str, Vec<Expression<'a>>),
     /// One or two formulas joined by a logical operator.
-    Logic(Logic, Vec<Formula<'a>>),
+    Logic(&'a str, Vec<Formula<'a>>),
     /// Existence operator, stating that a query has nonempty results.
     Exists(Box<Query<'a>>),
 }
 
+/// Style options for conversion to SQL.
+pub struct Style {
+    /// Use joins (INNER and CROSS) instead of selecting from multiple tables.
+    pub join: bool,
+    /// Use semijoins (WHERE EXISTS) where possible.
+    pub semijoin: bool,
+    /// Use SELECT DISTINCT and UNION instead of SELECT and UNION ALL.
+    pub distinct: bool,
+    /// Pretty-print the output instead of putting it on one line.
+    pub pretty: bool,
+}
+
 /// Error type for conversions to SQL.
 pub enum Error<'a> {
-    NotRangeRestricted(&'a str),
+    /// The tuple relational calculus formula is not range restricted.
+    NotRangeRestricted(ulc::Term<'a>),
 }
 
-impl<'a> Query<'a> {
-    // TODO
-}
-
-impl<'a> TryFrom<trc::Formula<'a>> for Query<'a> {
+impl<'a> TryFrom<trc::Query<'a>> for Query<'a> {
     type Error = Error<'a>;
 
-    fn try_from(formula: trc::Formula) -> Result<Query, Error> {
+    fn try_from(query: trc::Query) -> Result<Query, Error> {
+        Err(Error::NotRangeRestricted(ulc::Term::Const("X")))
+    }
+}
+
+impl<'a> TryFrom<trc::Formula<'a>> for Union<'a> {
+    type Error = Error<'a>;
+
+    fn try_from(formula: trc::Formula) -> Result<Union, Error> {
         match formula {
             trc::Formula::Rel(rel, args) => {
-                let mut query = Query {
-                    cols: vec![],
-                    tables: vec![(Table::Named(rel), vec![])],
+                let mut vars = vec![];
+                let mut map = HashMap::new();
+                let mut un = Join {
+                    tables: vec![Table::Named(rel),
                     cond: vec![],
                 };
                 for (i, arg) in args.iter().enumerate() {
                     match arg {
                         trc::Expression::Const(val) => {
-                            query.cond.push(Formula::Pred(
+                            sel.cond.push(Formula::Pred(
                                 "=",
                                 vec![
                                     Expression::Column(Column {
@@ -104,10 +125,20 @@ impl<'a> TryFrom<trc::Formula<'a>> for Query<'a> {
                             // else: add col for this free var
                             unimplemented!()
                         }
-                        trc::Expression::App(fun, args) => {}
+                        _ => (),
                     }
                 }
-                unimplemented!()
+                for (i, arg) in args.into_iter().enumerate() {
+                    match arg {
+                        trc::Expression::App(..) => {
+                            return Err(Error::NotRangeRestricted(arg.into()));
+                        }
+                    }
+                }
+                Union {
+                    vars,
+                    joins: vec![Join]
+                }
             }
             trc::Formula::Pred(fun, args) => unimplemented!(),
             trc::Formula::Equal(lhs, rhs) => unimplemented!(),
@@ -150,6 +181,7 @@ impl<'a> TryFrom<trc::Formula<'a>> for Query<'a> {
 // A & p(...) (subset)
 //     append conjunct
 // A & B
+//     FIRST, check if one's free vars is a subset of the other.
 //     recur on A, recur on B, then
 //         SELECT a1, a2, b1, b2, ... FROM (SELECT ...) AS _, (SELECT ...) AS _
 //         for each intersection, append = conjunct
@@ -159,6 +191,12 @@ impl<'a> TryFrom<trc::Formula<'a>> for Query<'a> {
 //     (check they have same vars!)
 // exists x. A
 //     recur on A, remove x from cols
+
+// NOTE:  Might need to delay table -> where exists transformation.
+// e.g. R(x,z) & Q(x,y) -> ok need multiple tables / join
+//  -> exists y. R(x,z) & Q(x,y) -> now it can be transformed
+
+// semijoin optimizaiont problem: remove table from list means shifting all indices
 
 // R(x,5) | R(x,6)
 // exists y . R(x,y) & (y=5|y=6)
