@@ -330,6 +330,51 @@ impl<'a> From<Formula<'a>> for Term<'a> {
 mod tests {
     use super::*;
 
+    use std::iter::once;
+
+    #[test]
+    fn free_vars_const() {
+        assert_eq!(Expression::Const("x").free_vars(), HashSet::new());
+    }
+
+    #[test]
+    fn free_vars_var() {
+        assert_eq!(Expression::Var("x").free_vars(), once("x").collect());
+    }
+
+    #[test]
+    fn free_vars_app() {
+        assert_eq!(
+            Expression::App(
+                "f",
+                vec![
+                    Expression::Var("x"),
+                    Expression::Var("x"),
+                    Expression::Var("y"),
+                ]
+            ).free_vars(),
+            vec!["x", "y"].into_iter().collect()
+        );
+    }
+
+    #[test]
+    fn free_vars_exists() {
+        assert_eq!(
+            Formula::Exists(
+                vec!["x", "y"],
+                box Formula::Rel(
+                    "r",
+                    vec![
+                        Expression::Var("x"),
+                        Expression::Var("y"),
+                        Expression::Var("z"),
+                    ]
+                )
+            ).free_vars(),
+            once("z").collect()
+        )
+    }
+
     #[test]
     fn const_to_const_expr() {
         assert_eq!(Term::Const("x").try_into(), Ok(Expression::Const("x")));

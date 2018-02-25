@@ -149,7 +149,6 @@ where
 mod tests {
     use super::*;
 
-    use std::collections::HashSet;
     use std::convert::TryInto;
 
     #[test]
