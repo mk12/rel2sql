@@ -21,20 +21,23 @@ pub enum Kind {
 
 /// String constants for the operators.
 pub mod consts {
-    pub const NOT: &str = "!";
-    pub const AND: &str = "&";
-    pub const OR: &str = "|";
-    pub const EQ: &str = "=";
-    pub const NEQ: &str = "!=";
-    pub const LT: &str = "<";
-    pub const GT: &str = ">";
-    pub const LTE: &str = "<=";
-    pub const GTE: &str = ">=";
     pub const ADD: &str = "+";
-    pub const SUB: &str = "-";
-    pub const MULT: &str = "*";
+    pub const AND: &str = "&";
+    pub const AND_S: &str = "AND";
     pub const DIV: &str = "/";
+    pub const EQ: &str = "=";
+    pub const GT: &str = ">";
+    pub const GTE: &str = ">=";
+    pub const LT: &str = "<";
+    pub const LTE: &str = "<=";
     pub const MOD: &str = "%";
+    pub const MULT: &str = "*";
+    pub const NEQ: &str = "!=";
+    pub const NOT: &str = "!";
+    pub const NOT_S: &str = "NOT";
+    pub const OR: &str = "|";
+    pub const OR_S: &str = "OR";
+    pub const SUB: &str = "-";
 }
 
 pub use self::consts::*;
@@ -43,10 +46,13 @@ pub use self::consts::*;
 pub const LOWEST_PRECEDENCE: Precedence = 0;
 
 /// The highest operator precedence, reserved for special use.
-pub const HIGHEST_PRECEDENCE: Precedence = 8;
+pub const HIGHEST_PRECEDENCE: Precedence = 11;
 
 /// List of precedence tiers, in order of increasing precedence.
 const PRECEDENCE_LIST: [&[&str]; (HIGHEST_PRECEDENCE - 1) as usize] = [
+    &[OR_S],
+    &[AND_S],
+    &[NOT_S],
     &[OR],
     &[AND],
     &[EQ, NEQ],
@@ -59,7 +65,10 @@ const PRECEDENCE_LIST: [&[&str]; (HIGHEST_PRECEDENCE - 1) as usize] = [
 /// List of operators organized by their kind.
 const KIND_LIST: [(Kind, &[&str]); 2] = [
     (Kind::Expression, &[ADD, SUB, MULT, DIV, MOD]),
-    (Kind::Formula, &[NOT, AND, OR, EQ, NEQ, LT, LTE, GT, GTE]),
+    (
+        Kind::Formula,
+        &[NOT_S, AND_S, OR_S, NOT, AND, OR, EQ, NEQ, LT, LTE, GT, GTE],
+    ),
 ];
 
 lazy_static! {
