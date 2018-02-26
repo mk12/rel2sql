@@ -11,7 +11,9 @@ extern crate lazy_static;
 
 pub mod parser;
 
+mod map;
 mod ops;
 mod sql;
 mod trc;
 mod ulc;
+mod util;

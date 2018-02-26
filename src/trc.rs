@@ -17,6 +17,7 @@ use std::error;
 
 use ops::{self, Kind};
 use ulc::{self, Term};
+use util::{try_vec_to_box, try_vec_to_vec, vec_to_vec, try_vec_to_box_2};
 
 /// A query in the tuple relational calculus.
 ///
@@ -147,6 +148,12 @@ pub enum Error<'a> {
     Internal(&'static str),
 }
 
+impl<'a> From<&'static str> for Error<'a> {
+    fn from(s: &'static str) -> Error {
+        Error::Internal(s)
+    }
+}
+
 impl<'a> error::Error for Error<'a> {
     fn description(&self) -> &str {
         match self {
@@ -170,62 +177,6 @@ impl<'a> fmt::Display for Error<'a> {
                 write!(f, "An internal error occurred: {}", info)
             }
         }
-    }
-}
-
-/// Converts a vector of type to another using `Into`.
-fn vec_to_vec<'a, T, U>(v: Vec<T>) -> Vec<U>
-where
-    T: Into<U>,
-{
-    v.into_iter().map(Into::into).collect()
-}
-
-/// Converts a vector of type to another using `TryInto`.
-///
-/// Returns `Ok` if all elements convert successfully. Otherwise, returns the
-/// `Err` for the first failed conversion.
-fn try_vec_to_vec<'a, T, U>(v: Vec<T>) -> Result<Vec<U>, Error<'a>>
-where
-    T: TryInto<U, Error = Error<'a>>,
-{
-    v.into_iter().map(TryInto::try_into).collect()
-}
-
-/// Converts a vector of one `T` to a `Box<U>`, and constructs `V` with it.
-///
-/// Returns `Err` if the vector has the wrong number of elements, or if
-/// conversion from `T` to `U` using the `TryInto` trait fails.
-fn try_vec_to_box<'a, T, U, V, F>(make: F, args: Vec<T>) -> Result<V, Error<'a>>
-where
-    T: TryInto<U, Error = Error<'a>>,
-    F: FnOnce(Box<U>) -> V,
-{
-    let mut it = args.into_iter();
-    match (it.next(), it.next()) {
-        (Some(arg), None) => Ok(make(box arg.try_into()?)),
-        _ => Err(Error::Internal("Wrong number of arguments")),
-    }
-}
-
-/// Converts a vector of two `T` to two `Box<U>`, and constructs `V` with them.
-///
-/// Returns `Err` if the vector has the wrong number of elements, or if
-/// conversion from `T` to `U` using the `TryInto` trait fails.
-fn try_vec_to_box_2<'a, T, U, V, F>(
-    make: F,
-    args: Vec<T>,
-) -> Result<V, Error<'a>>
-where
-    T: TryInto<U, Error = Error<'a>>,
-    F: FnOnce(Box<U>, Box<U>) -> V,
-{
-    let mut it = args.into_iter();
-    match (it.next(), it.next(), it.next()) {
-        (Some(arg1), Some(arg2), None) => {
-            Ok(make(box arg1.try_into()?, box arg2.try_into()?))
-        }
-        _ => Err(Error::Internal("Wrong number of arguments")),
     }
 }
 

@@ -7,66 +7,27 @@
 //!
 //! [`trc`]: ../trc/index.html
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
 
+use map::OrderMap;
+use ops;
 use trc;
-use ulc;
+use ulc::Term;
+use util::try_vec_to_vec;
 
 /// A top-level SQL query.
-pub struct Query<'a> {
+#[derive(Debug, PartialEq, Eq)]
+pub struct TopQuery<'a> {
     /// The expressions to select.
     exprs: Vec<Expression<'a>>,
     /// Query to get free variables from.
-    union: Union<'a>
-}
-
-/// A query that selects the values of free variables.
-struct Union<'a> {
-    /// The free variables to select.
-    vars: HashSet<&'a str>,
-    /// The queries to combine with "UNION".
-    sels: Vec<Select<'a>>,
-}
-
-/// A query that joins one or more tables.
-struct Select<'a> {
-    /// The tables to select from.
-    tables: Vec<Table<'a>>,
-    /// The "WHERE" clause, as a vector of conjuncts.
-    cond: Vec<Formula<'a>>,
-}
-
-/// A SQL table expression.
-enum Table<'a> {
-    /// A named table in the database.
-    Named(&'a str, HashMap<&'a str, usize>),
-    /// A table produced by a subquery.
-    Sub(Union<'a>),
-}
-
-/// An expression in a SQL query.
-pub enum Expression<'a> {
-    /// A string constant.
-    Const(&'a str),
-    /// A column from a table.
-    Column(Column),
-    /// A function applied to a tuple of expressions.
-    App(&'a str, Vec<Expression<'a>>),
-}
-
-/// A formula in a SQL query.
-pub enum Formula<'a> {
-    /// A predicate applied to a tuple of expressions.
-    Pred(&'a str, Vec<Expression<'a>>),
-    /// One or two formulas joined by a logical operator.
-    Logic(&'a str, Vec<Formula<'a>>),
-    /// Existence operator, stating that a query has nonempty results.
-    Exists(Box<Query<'a>>),
+    query: Query<'a>,
 }
 
 /// Style options for conversion to SQL.
+#[derive(Debug, PartialEq, Eq)]
 pub struct Style {
     /// Use joins (INNER and CROSS) instead of selecting from multiple tables.
     pub join: bool,
@@ -79,19 +40,263 @@ pub struct Style {
 }
 
 /// Error type for conversions to SQL.
+#[derive(Debug, PartialEq, Eq)]
 pub enum Error<'a> {
     /// The tuple relational calculus formula is not range restricted.
-    NotRangeRestricted(ulc::Term<'a>),
+    NotRangeRestricted(Term<'a>),
+    /// A free variable in the result tuple does not appear in the formula.
+    UnconstrainedVariable(&'a str),
+    /// An unexpected `trc::Formula::Rel` term was found.
+    UnexpectedRel(Term<'a>),
+    /// An unexpected `trc::Formula::Exists` term was found.
+    UnexpectedExists(Term<'a>),
 }
 
-impl<'a> TryFrom<trc::Query<'a>> for Query<'a> {
-    type Error = Error<'a>;
+/// A query that selects the values of free variables.
+#[derive(Debug, PartialEq, Eq)]
+enum Query<'a> {
+    /// A single query.
+    One(Select<'a>),
+    /// A union of queries.
+    Union(Vec<Select<'a>>),
+}
 
-    fn try_from(query: trc::Query) -> Result<Query, Error> {
-        Err(Error::NotRangeRestricted(ulc::Term::Const("X")))
+/// A query that selects from one or more tables.
+#[derive(Debug, PartialEq, Eq)]
+struct Select<'a> {
+    /// The free variables to select.
+    vars: VarMap<'a>,
+    /// The tables to select from, and their "ON" clauses.
+    tables: Vec<(Table<'a>, Vec<Formula<'a>>)>,
+    /// The "WHERE" clause, as a vector of conjuncts.
+    cond: Vec<Formula<'a>>,
+}
+
+/// A mapping from free variables to columns.
+type VarMap<'a> = OrderMap<&'a str, Column>;
+
+/// A SQL table expression.
+#[derive(Debug, PartialEq, Eq)]
+enum Table<'a> {
+    /// A named table in the database.
+    Named(&'a str),
+    /// A table produced by a subquery.
+    Sub(Query<'a>),
+}
+
+/// A group of indices specifying a column in a query.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+struct Column {
+    /// Index of the query: 0 is current, 1 is first parent, etc.
+    query_index: usize,
+    /// Index of the table in the query's `tables` vector.
+    table_index: usize,
+    /// Index of the column in the table's `cols` vector.
+    column_index: usize,
+}
+
+/// An expression in a SQL query.
+#[derive(Debug, PartialEq, Eq)]
+enum Expression<'a> {
+    /// A string constant.
+    Const(&'a str),
+    /// A column from a table.
+    Column(Column),
+    /// A function applied to a tuple of expressions.
+    App(&'a str, Vec<Expression<'a>>),
+}
+
+/// A formula in a SQL query.
+#[derive(Debug, PartialEq, Eq)]
+enum Formula<'a> {
+    /// A predicate applied to a tuple of expressions.
+    Pred(&'a str, Vec<Expression<'a>>),
+    /// One or two formulas joined by a logical operator.
+    Logic(&'a str, Vec<Formula<'a>>),
+    /// Existence operator, stating that a query has nonempty results.
+    Exists(Box<Query<'a>>),
+}
+
+/// Creates a formula for equality.
+fn equal<'a, T, U>(lhs: T, rhs: U) -> Formula<'a>
+where
+    T: Into<Expression<'a>>,
+    U: Into<Expression<'a>>,
+{
+    Formula::Pred(ops::EQ, vec![lhs.into(), rhs.into()])
+}
+
+/// Creates a column expression.
+fn column(table_index: usize, column_index: usize) -> Column {
+    Column {
+        query_index: 0,
+        table_index,
+        column_index,
     }
 }
 
+/// Returns true if all free vars in `expr` are contained in `map`.
+fn has_free_vars(map: &VarMap, expr: &trc::Expression) -> bool {
+    expr.free_vars().iter().all(|v| map.contains_key(v))
+}
+
+/// Converts a tuple relational calculus expression to a SQL expression.
+///
+/// On success, returns the converted expression. On failure, returns the name
+/// of the variable that was not found in the map.
+fn convert_expression<'a>(
+    expr: &trc::Expression<'a>,
+    map: &VarMap,
+) -> Result<Expression<'a>, &'a str> {
+    match expr {
+        trc::Expression::Const(val) => Ok(Expression::Const(val)),
+        trc::Expression::Var(name) => {
+            map.get(name).map(Expression::Column).ok_or(name)
+        }
+        trc::Expression::App(fun, args) => Ok(Expression::App(
+            fun,
+            args.iter()
+                .map(|arg| convert_expression(arg, map))
+                .collect::<Result<Vec<_>, &str>>()?,
+        )),
+    }
+}
+
+impl<'a> Query<'a> {
+    /// Converts a query to a single selection (wrapping the union).
+    fn wrap(self) -> Select<'a> {
+        let vars = match self {
+            Query::One(sel) => return sel,
+            Query::Union(ref sels) => sels[0].vars.clone(),
+        };
+        Select {
+            vars,
+            tables: vec![(Table::Sub(self), vec![])],
+            cond: vec![],
+        }
+    }
+}
+
+impl<'a> From<&'a str> for Expression<'a> {
+    fn from(val: &'a str) -> Expression<'a> {
+        Expression::Const(val)
+    }
+}
+
+impl<'a> From<Column> for Expression<'a> {
+    fn from(col: Column) -> Expression<'a> {
+        Expression::Column(col)
+    }
+}
+
+impl<'a> TryFrom<trc::Query<'a>> for TopQuery<'a> {
+    type Error = Error<'a>;
+
+    fn try_from(query: trc::Query) -> Result<TopQuery, Error> {
+        let sub: Query = query.formula.try_into()?;
+        let sel = sub.wrap();
+        Ok(TopQuery {
+            exprs: query
+                .tuple
+                .iter()
+                .map(|arg| convert_expression(arg, &sel.vars))
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|v| Error::UnconstrainedVariable(v))?,
+            query: Query::One(sel),
+        })
+    }
+}
+
+impl<'a> TryFrom<trc::Formula<'a>> for Query<'a> {
+    type Error = Error<'a>;
+
+    fn try_from(formula: trc::Formula) -> Result<Query, Error> {
+        match formula {
+            trc::Formula::Rel(rel, args) => {
+                let mut vars: OrderMap<&str, Column> = OrderMap::new();
+                let mut cond = vec![];
+                for (i, arg) in args.iter().enumerate() {
+                    match arg {
+                        trc::Expression::Const(&val) => {
+                            cond.push(equal(column(0, i), val));
+                        }
+                        trc::Expression::Var(name) => {
+                            if let Some(col) = vars.get(name) {
+                                cond.push(equal(col, column(0, i)))
+                            } else {
+                                vars.insert(name, column(0, i));
+                            }
+                        }
+                        _ => (),
+                    }
+                }
+                for (i, arg) in args.into_iter().enumerate() {
+                    if let trc::Expression::App(..) = arg {
+                        cond.push(equal(
+                            column(0, i),
+                            convert_expression(&arg, &vars).or(Err(
+                                Error::NotRangeRestricted(arg.into()),
+                            ))?,
+                        ));
+                    }
+                }
+                Ok(Query::One(Select {
+                    vars,
+                    tables: vec![(Table::Named(rel), vec![])],
+                    cond,
+                }))
+            }
+            trc::Formula::And(box lhs, box trc::Formula::Rel(..)) => {
+                unimplemented!()
+            }
+            trc::Formula::And(
+                box rec,
+                box trc::Formula::Equal(box lhs, box rhs),
+            ) => {
+                let q = rec.try_into()?.map(Query::wrap);
+            }
+            trc::Formula::And(box lhs, box trc::Formula::Not(..)) => {
+                unimplemented!()
+            }
+            trc::Formula::And(box lhs, box rhs) => unimplemented!(),
+            trc::Formula::Or(box lhs, box rhs) => unimplemented!(),
+            trc::Formula::Exists(vars, box body) => unimplemented!(),
+            _ => Err(Error::NotRangeRestricted(formula.into())),
+        }
+    }
+}
+
+/*
+impl<'a> TryFrom<trc::Formula<'a>> for Formula<'a> {
+    type Error = Error<'a>;
+
+    fn try_from(formula: trc::Formula) -> Result<Formula, Error> {
+        match formula {
+            trc::Formula::Rel(..) => Err(Error::UnexpectedRel(formula.into())),
+            trc::Formula::Pred(fun, args) => Ok(Formula::Pred(fun, args)),
+            trc::Formula::Equal(box lhs, box rhs) => {
+                Ok(Formula::Pred(ops::EQ, vec![lhs, rhs]))
+            }
+            trc::Formula::Not(box arg) => {
+                Ok(Formula::Logic(ops::NOT_S, vec![arg.try_into()?]))
+            }
+            trc::Formula::And(box lhs, box rhs) => Ok(Formula::Logic(
+                ops::AND_S,
+                vec![lhs.try_into()?, rhs.try_into()?],
+            )),
+            trc::Formula::Or(box lhs, box rhs) => Ok(Formula::Logic(
+                ops::OR_S,
+                vec![lhs.try_into()?, rhs.try_into()?],
+            )),
+            trc::Formula::Exists(..) => {
+                Err(Error::UnexpectedExists(formula.into()))
+            }
+        }
+    }
+}
+*/
+
+/*
 impl<'a> TryFrom<trc::Formula<'a>> for Union<'a> {
     type Error = Error<'a>;
 
@@ -149,6 +354,7 @@ impl<'a> TryFrom<trc::Formula<'a>> for Union<'a> {
         }
     }
 }
+*/
 
 // R(...)
 //     const -> append = conjunct
@@ -169,7 +375,7 @@ impl<'a> TryFrom<trc::Formula<'a>> for Union<'a> {
 //                 all recur: append = conjunct
 // A & x=y (intersection)
 //     recur on A, then
-//         x in, y not: select free var y as x from A
+//   ***   x in, y not: select free var y as x from A
 //         y in, x not: symmetrical
 //         x in, y in: append = conjunct to A
 //         neither in: fail

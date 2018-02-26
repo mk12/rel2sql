@@ -141,15 +141,13 @@ where
             (true, false) => write!(f, "({}) {} {}", lhs, op, rhs),
             (true, true) => write!(f, "({}) {} ({})", lhs, op, rhs),
         },
-        _ => panic!("Invalid number of arguemnts"),
+        _ => panic!("Invalid number of arguments"),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    use std::convert::TryInto;
 
     #[test]
     fn lowest_precedence() {
