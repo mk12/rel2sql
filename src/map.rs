@@ -1,14 +1,13 @@
 /// Hash map data structure.
 
-use std::borrow::Borrow;
-use std::collections::HashMap;
+use std::collections::{hash_map, HashMap};
 use std::fmt;
 use std::hash::Hash;
 
 /// A hash map that remembers insertion order.
 ///
-/// To simplify the implementation, the key types `K` and `V` are required to be
-/// `Copy`. This makes it easier to store in both the vector and the map.
+/// To simplify the implementation, the key types `K` is required to be `Copy`.
+/// This makes it easier to store in both the vector and the map.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct OrderMap<K, V>
 where
@@ -23,7 +22,6 @@ where
 impl<K, V> OrderMap<K, V>
 where
     K: fmt::Debug + PartialEq + Eq + Hash + Copy,
-    V: Copy,
 {
     /// Creates a new `OrderMap`.
     pub fn new() -> OrderMap<K, V> {
@@ -39,8 +37,13 @@ where
     }
 
     /// Gets a value from the map by key.
-    pub fn get(&self, k: K) -> Option<V> {
-        self.map.get(&k).cloned()
+    pub fn get(&self, k: K) -> Option<&V> {
+        self.map.get(&k)
+    }
+
+    /// Returns an iterator over the keys of the map.
+    pub fn keys(&self) -> hash_map::Keys<K, V> {
+        self.map.keys()
     }
 
     /// Inserts an entry into the map.

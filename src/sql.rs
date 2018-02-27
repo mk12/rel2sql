@@ -10,6 +10,7 @@
 use std::collections::HashSet;
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
+use std::mem;
 
 use map::OrderMap;
 use ops;
@@ -17,23 +18,14 @@ use trc;
 use ulc::Term;
 use util::try_vec_to_vec;
 
-/// A top-level SQL query.
-#[derive(Debug, PartialEq, Eq)]
-pub struct TopQuery<'a> {
-    /// The expressions to select.
-    exprs: Vec<Expression<'a>>,
-    /// Query to get free variables from.
-    query: Query<'a>,
-}
-
 /// Style options for conversion to SQL.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Style {
-    /// Use joins (INNER and CROSS) instead of selecting from multiple tables.
+    /// Use joins ("INNER", "CROSS") instead of selecting from multiple tables.
     pub join: bool,
-    /// Use semijoins (WHERE EXISTS) where possible.
+    /// Use semijoins ("WHERE EXISTS") where possible.
     pub semijoin: bool,
-    /// Use SELECT DISTINCT and UNION instead of SELECT and UNION ALL.
+    /// Use "SELECT DISTINCT" and "UNION" rather than "SELECT" and "UNION ALL".
     pub distinct: bool,
     /// Pretty-print the output instead of putting it on one line.
     pub pretty: bool,
@@ -52,28 +44,38 @@ pub enum Error<'a> {
     UnexpectedExists(Term<'a>),
 }
 
-/// A query that selects the values of free variables.
+/// A top-level SQL query.
 #[derive(Debug, PartialEq, Eq)]
-enum Query<'a> {
-    /// A single query.
-    One(Select<'a>),
-    /// A union of queries.
-    Union(Vec<Select<'a>>),
+pub struct TopQuery<'a> {
+    /// The expressions to select.
+    cols: Vec<Expression<'a>>,
+    /// The underlying query for the free variables in `cols`.
+    sel: Select<'a>,
 }
 
-/// A query that selects from one or more tables.
+/// A query that selects the values of free variables.
+#[derive(Debug, PartialEq, Eq)]
+struct Query<'a> {
+    /// One or more selections, the union of which form the query.
+    sels: Vec<Select<'a>>,
+}
+
+/// A map from free variables to expressions that determine their values.
+type VarMap<'a> = OrderMap<&'a str, Expression<'a>>;
+
+/// A vector of conjuncts forming a condition.
+type Condition<'a> = Vec<Formula<'a>>;
+
+/// A selection of expressions from one or more tables.
 #[derive(Debug, PartialEq, Eq)]
 struct Select<'a> {
     /// The free variables to select.
-    vars: VarMap<'a>,
-    /// The tables to select from, and their "ON" clauses.
-    tables: Vec<(Table<'a>, Vec<Formula<'a>>)>,
-    /// The "WHERE" clause, as a vector of conjuncts.
-    cond: Vec<Formula<'a>>,
+    map: VarMap<'a>,
+    /// One or more tables to select from, and their "ON" clauses.
+    tables: Vec<(Table<'a>, Condition<'a>)>,
+    /// The "WHERE" clause.
+    cond: Condition<'a>,
 }
-
-/// A mapping from free variables to columns.
-type VarMap<'a> = OrderMap<&'a str, Column>;
 
 /// A SQL table expression.
 #[derive(Debug, PartialEq, Eq)]
@@ -96,7 +98,7 @@ struct Column {
 }
 
 /// An expression in a SQL query.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 enum Expression<'a> {
     /// A string constant.
     Const(&'a str),
@@ -126,7 +128,7 @@ where
     Formula::Pred(ops::EQ, vec![lhs.into(), rhs.into()])
 }
 
-/// Creates a column expression.
+/// Creates a column expression for the current query.
 fn column(table_index: usize, column_index: usize) -> Column {
     Column {
         query_index: 0,
@@ -135,24 +137,18 @@ fn column(table_index: usize, column_index: usize) -> Column {
     }
 }
 
-/// Returns true if all free vars in `expr` are contained in `map`.
-fn has_free_vars(map: &VarMap, expr: &trc::Expression) -> bool {
-    expr.free_vars().iter().all(|v| map.contains_key(v))
-}
-
-/// Converts a tuple relational calculus expression to a SQL expression.
+/// Converts a TRC expression to a SQL expression.
 ///
-/// On success, returns the converted expression. On failure, returns the name
-/// of the variable that was not found in the map.
+/// Uses the given map to convert variables in the expression. On success,
+/// returns the converted expression. On failure, returns the name of the
+/// variable that was not found in the map.
 fn convert_expression<'a>(
     expr: &trc::Expression<'a>,
-    map: &VarMap,
+    map: &VarMap<'a>,
 ) -> Result<Expression<'a>, &'a str> {
     match expr {
         trc::Expression::Const(val) => Ok(Expression::Const(val)),
-        trc::Expression::Var(name) => {
-            map.get(name).map(Expression::Column).ok_or(name)
-        }
+        trc::Expression::Var(name) => map.get(name).cloned().ok_or(name),
         trc::Expression::App(fun, args) => Ok(Expression::App(
             fun,
             args.iter()
@@ -162,18 +158,40 @@ fn convert_expression<'a>(
     }
 }
 
-impl<'a> Query<'a> {
-    /// Converts a query to a single selection (wrapping the union).
-    fn wrap(self) -> Select<'a> {
-        let vars = match self {
-            Query::One(sel) => return sel,
-            Query::Union(ref sels) => sels[0].vars.clone(),
-        };
+/// Combine multiple selections into a single selection.
+fn combine<'a>(sels: Vec<Select<'a>>) -> Select<'a> {
+    if sels.len() == 1 {
+        sels.into_iter().next().unwrap()
+    } else {
+        let mut map = OrderMap::new();
+        for (i, &var) in sels[0].map.keys().enumerate() {
+            map.insert(var, Expression::Column(column(0, i)));
+        }
         Select {
-            vars,
-            tables: vec![(Table::Sub(self), vec![])],
+            map,
+            tables: vec![(Table::Sub(Query { sels: sels }), vec![])],
             cond: vec![],
         }
+    }
+}
+
+impl<'a> From<Query<'a>> for Select<'a> {
+    fn from(query: Query) -> Select {
+        combine(query.sels)
+    }
+}
+
+impl<'a> Query<'a> {
+    /// Returns a mutable reference to selection for this query.
+    ///
+    /// If the query is the union of multiple selections, combines them first.
+    fn mut_select(&mut self) -> &mut Select<'a> {
+        if self.sels.len() != 1 {
+            let mut sels = vec![];
+            mem::swap(&mut self.sels, &mut sels);
+            self.sels.push(combine(sels));
+        }
+        &mut self.sels[0]
     }
 }
 
@@ -193,16 +211,16 @@ impl<'a> TryFrom<trc::Query<'a>> for TopQuery<'a> {
     type Error = Error<'a>;
 
     fn try_from(query: trc::Query) -> Result<TopQuery, Error> {
-        let sub: Query = query.formula.try_into()?;
-        let sel = sub.wrap();
+        let union: Query = query.formula.try_into()?;
+        let sel: Select = union.into();
         Ok(TopQuery {
-            exprs: query
+            cols: query
                 .tuple
                 .iter()
-                .map(|arg| convert_expression(arg, &sel.vars))
+                .map(|arg| convert_expression(arg, &sel.map))
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|v| Error::UnconstrainedVariable(v))?,
-            query: Query::One(sel),
+            sel,
         })
     }
 }
@@ -213,7 +231,7 @@ impl<'a> TryFrom<trc::Formula<'a>> for Query<'a> {
     fn try_from(formula: trc::Formula) -> Result<Query, Error> {
         match formula {
             trc::Formula::Rel(rel, args) => {
-                let mut vars: OrderMap<&str, Column> = OrderMap::new();
+                let mut map: VarMap = OrderMap::new();
                 let mut cond = vec![];
                 for (i, arg) in args.iter().enumerate() {
                     match arg {
@@ -221,10 +239,13 @@ impl<'a> TryFrom<trc::Formula<'a>> for Query<'a> {
                             cond.push(equal(column(0, i), val));
                         }
                         trc::Expression::Var(name) => {
-                            if let Some(col) = vars.get(name) {
-                                cond.push(equal(col, column(0, i)))
+                            if let Some(expr) = map.get(name) {
+                                cond.push(equal(expr.clone(), column(0, i)))
                             } else {
-                                vars.insert(name, column(0, i));
+                                map.insert(
+                                    name,
+                                    Expression::Column(column(0, i)),
+                                );
                             }
                         }
                         _ => (),
@@ -234,37 +255,54 @@ impl<'a> TryFrom<trc::Formula<'a>> for Query<'a> {
                     if let trc::Expression::App(..) = arg {
                         cond.push(equal(
                             column(0, i),
-                            convert_expression(&arg, &vars).or(Err(
+                            convert_expression(&arg, &map).or(Err(
                                 Error::NotRangeRestricted(arg.into()),
                             ))?,
                         ));
                     }
                 }
-                Ok(Query::One(Select {
-                    vars,
+                let sel = Select {
+                    map,
                     tables: vec![(Table::Named(rel), vec![])],
                     cond,
-                }))
+                };
+                Ok(Query { sels: vec![sel] })
             }
-            trc::Formula::And(box lhs, box trc::Formula::Rel(..)) => {
-                unimplemented!()
+            trc::Formula::And(box lhs, box rhs) => {
+                let mut query: Query = lhs.try_into()?;
+                let sel = query.mut_select();
+                match &rhs {
+                    trc::Formula::Rel(..) => unimplemented!(),
+                    trc::Formula::Equal(x, y) => match (x, y) {
+                        (box trc::Expression::Var(name), ref expr)
+                        | (ref expr, box trc::Expression::Var(name))
+                            if !sel.map.contains_key(name) =>
+                        {
+                            let expr = convert_expression(expr, &sel.map).or(
+                                Err(Error::NotRangeRestricted(formula.into())),
+                            )?;
+                            sel.map.insert(name, expr);
+                        }
+                        _ => unimplemented!(),
+                    },
+                    trc::Formula::Not(..) => unimplemented!(),
+                    _ => unimplemented!(),
+                }
+                Ok(query)
             }
-            trc::Formula::And(
-                box rec,
-                box trc::Formula::Equal(box lhs, box rhs),
-            ) => {
-                let q = rec.try_into()?.map(Query::wrap);
-            }
-            trc::Formula::And(box lhs, box trc::Formula::Not(..)) => {
-                unimplemented!()
-            }
-            trc::Formula::And(box lhs, box rhs) => unimplemented!(),
             trc::Formula::Or(box lhs, box rhs) => unimplemented!(),
             trc::Formula::Exists(vars, box body) => unimplemented!(),
+            trc::Formula::Equal(..) => unimplemented!(),
+            // ^ var == const special case (or apps of consts)
             _ => Err(Error::NotRangeRestricted(formula.into())),
         }
     }
 }
+
+/// Returns true if `map` contains all the free vars of `expr`.
+// fn has_free_vars(map: &VarMap, expr: &trc::Expression) -> bool {
+//     expr.free_vars().iter().all(|v| map.contains_key(v))
+// }
 
 /*
 impl<'a> TryFrom<trc::Formula<'a>> for Formula<'a> {
@@ -355,6 +393,15 @@ impl<'a> TryFrom<trc::Formula<'a>> for Union<'a> {
     }
 }
 */
+
+// !!!!
+// {(x,y) : R(x) & y = f(x)}
+// -> we need Expr in all, not just Expr in top-level and Column everywhere else
+
+// {(x,y,z) : R(x) & y = f(x, x) & z = f(y, y)}
+// must clone expressions to expand
+// alternative: more layers of queries
+// but this is a rare case; better to just clone since it is rare
 
 // R(...)
 //     const -> append = conjunct

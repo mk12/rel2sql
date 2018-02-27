@@ -3,6 +3,7 @@
 #![feature(box_patterns)]
 #![feature(box_syntax)]
 #![feature(match_default_bindings)]
+#![feature(nll)]
 #![feature(slice_patterns)]
 #![feature(try_from)]
 
