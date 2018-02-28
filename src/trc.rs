@@ -225,8 +225,8 @@ impl<'a> TryFrom<&'a Term<'a>> for Formula<'a> {
             Term::App(fun, _) if ops::kind(fun) == Some(Kind::Expression) => {
                 Err(Error::NotFormula(term))
             }
-            Term::App(&fun, args) => match ops::kind(fun) {
-                Some(Kind::Formula) => match fun {
+            Term::App(fun, args) => match ops::kind(fun) {
+                Some(Kind::Formula) => match *fun {
                     ops::NOT => try_vec_to_box(Formula::Not, args),
                     ops::AND => try_vec_to_box_2(Formula::And, args),
                     ops::OR => try_vec_to_box_2(Formula::Or, args),

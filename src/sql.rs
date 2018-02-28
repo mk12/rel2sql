@@ -13,7 +13,6 @@ use std::mem;
 use map::OrderMap;
 use ops;
 use trc;
-use ulc::Term;
 
 /// Style options for conversion to SQL.
 #[derive(Debug, PartialEq, Eq)]
@@ -150,7 +149,7 @@ fn convert_expression<'a>(
             fun,
             args.iter()
                 .map(|arg| convert_expression(arg, map))
-                .collect::<Result<Vec<_>, &str>>()?,
+                .collect::<Result<Vec<Expression>, &str>>()?,
         )),
     }
 }
@@ -212,14 +211,12 @@ impl<'a> TryFrom<&'a trc::Query<'a>> for TopQuery<'a> {
     ) -> Result<TopQuery, Error> {
         let query: Query = formula.try_into()?;
         let sel: Select = query.into();
-        Ok(TopQuery {
-            cols: tuple
-                .iter()
-                .map(|arg| convert_expression(arg, &sel.map))
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(|v| Error::UnconstrainedVariable(v))?,
-            sel,
-        })
+        let cols = tuple
+            .iter()
+            .map(|arg| convert_expression(arg, &sel.map))
+            .collect::<Result<Vec<Expression>, &str>>()
+            .map_err(|v| Error::UnconstrainedVariable(v))?;
+        Ok(TopQuery { cols, sel })
     }
 }
 
@@ -233,8 +230,8 @@ impl<'a> TryFrom<&'a trc::Formula<'a>> for Query<'a> {
                 let mut cond = vec![];
                 for (i, arg) in args.iter().enumerate() {
                     match arg {
-                        trc::Expression::Const(&val) => {
-                            cond.push(equal(column(0, i), val));
+                        trc::Expression::Const(val) => {
+                            cond.push(equal(column(0, i), *val));
                         }
                         trc::Expression::Var(name) => {
                             if let Some(expr) = map.get(name) {
