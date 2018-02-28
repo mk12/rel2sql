@@ -10,7 +10,7 @@
 use std::convert::{TryFrom, TryInto};
 use std::mem;
 
-use map::OrderMap;
+use map;
 use ops;
 use trc;
 
@@ -57,17 +57,20 @@ struct Query<'a> {
 }
 
 /// A map from free variables to expressions that determine their values.
-type VarMap<'a> = OrderMap<&'a str, Expression<'a>>;
+type VarMap<'a> = map::OrderMap<&'a str, Expression<'a>>;
+
+/// A set view of the free variables in a `VarMap`.
+type VarSet<'a> = map::KeySet<'a, &'a str, Expression<'a>>;
 
 /// A vector of conjuncts forming a condition.
 type Condition<'a> = Vec<Formula<'a>>;
 
-/// A selection of expressions from one or more tables.
+/// A selection of expressions from tables.
 #[derive(Debug, PartialEq, Eq)]
 struct Select<'a> {
     /// The free variables to select.
     map: VarMap<'a>,
-    /// One or more tables to select from, and their "ON" clauses.
+    /// Zero or more tables to select from, and their "ON" clauses.
     tables: Vec<(Table<'a>, Condition<'a>)>,
     /// The "WHERE" clause.
     cond: Condition<'a>,
@@ -142,7 +145,6 @@ fn convert_expression<'a>(
     expr: &trc::Expression<'a>,
     map: &VarMap<'a>,
 ) -> Result<Expression<'a>, &'a str> {
-    print!("{:?}", map);
     match expr {
         trc::Expression::Const(val) => Ok(Expression::Const(val)),
         trc::Expression::Var(name) => map.get(name).cloned().ok_or(name),
@@ -179,6 +181,16 @@ impl<'a> From<Query<'a>> for Select<'a> {
 }
 
 impl<'a> Query<'a> {
+    /// Returns the variables selected by the query.
+    ///
+    /// There is no method for getting the `VarMap`, since the query is the
+    /// union of possibly multiple `Select` objects, which each have their own
+    /// variable mapping. However, there keys are required to all be the same in
+    /// a well-formed query, hence this method.
+    fn vars(&self) -> VarSet {
+        self.sels[0].map.key_set()
+    }
+
     /// Returns a mutable reference to selection for this query.
     ///
     /// If the query is the union of multiple selections, combines them first.
@@ -218,6 +230,23 @@ impl<'a> TryFrom<&'a trc::Query<'a>> for TopQuery<'a> {
             .collect::<Result<Vec<Expression>, &str>>()
             .map_err(|v| Error::UnconstrainedVariable(v))?;
         Ok(TopQuery { cols, sel })
+    }
+}
+
+// in additino to map, need query_index offset to add
+// ... what if some come from different levels? need to think about it
+fn convert_formula_helper(
+    formula: &trc::Formula,
+    map: &VarMap,
+) -> Result<Query, Error> {
+    match formula {
+        trc::Formula::Rel(rel, args) => unimplemented!(),
+        trc::Formula::Not(box arg) => unimplemented!(),
+        trc::Formula::And(box lhs, box rhs) => unimplemented!(),
+        trc::Formula::Or(box lhs, box rhs) => unimplemented!(),
+        trc::Formula::Exists(vars, box body) => unimplemented!(),
+        trc::Formula::Equal(box x, box y) => unimplemented!(),
+        trc::Formula::Pred(pred, args) => unimplemented!(),
     }
 }
 
@@ -263,25 +292,54 @@ impl<'a> TryFrom<&'a trc::Formula<'a>> for Query<'a> {
                 let mut sel = query.mut_select();
                 match rhs {
                     trc::Formula::Rel(..) => unimplemented!(),
-                    trc::Formula::Equal(x, y) => match (x, y) {
-                        (box trc::Expression::Var(name), expr)
-                        | (expr, box trc::Expression::Var(name))
+                    trc::Formula::Equal(box x, box y) => match (x, y) {
+                        (trc::Expression::Var(name), expr)
+                        | (expr, trc::Expression::Var(name))
                             if !sel.map.contains(name) =>
                         {
                             let expr = conv_expr(expr, &sel.map)?;
                             sel.map.insert(name, expr);
                         }
-                        _ => unimplemented!(),
+                        (x, y) => sel.cond.push(equal(
+                            conv_expr(x, &sel.map)?,
+                            conv_expr(y, &sel.map)?,
+                        )),
                     },
-                    trc::Formula::Not(..) => unimplemented!(),
+                    trc::Formula::Not(box rhs) => unimplemented!(),
                     _ => unimplemented!(),
                 }
                 Ok(query)
             }
-            trc::Formula::Or(box lhs, box rhs) => unimplemented!(),
-            trc::Formula::Exists(vars, box body) => unimplemented!(),
-            trc::Formula::Equal(..) => unimplemented!(),
-            // ^ var == const special case (or apps of consts)
+            trc::Formula::Or(box lhs, box rhs) => {
+                let mut query: Query = lhs.try_into()?;
+                let mut rhs_query: Query = rhs.try_into()?;
+                if query.vars() != rhs_query.vars() {
+                    Err(Error::NotRangeRestricted(formula))
+                } else {
+                    query.sels.append(&mut rhs_query.sels);
+                    Ok(query)
+                }
+            }
+            trc::Formula::Exists(vars, box body) => {
+                let mut query: Query = body.try_into()?;
+                for mut sel in &mut query.sels {
+                    for var in vars {
+                        sel.map.remove(var);
+                    }
+                }
+                Ok(query)
+            }
+            trc::Formula::Equal(box trc::Expression::Var(name), box expr)
+            | trc::Formula::Equal(box expr, box trc::Expression::Var(name)) => {
+                let mut map = VarMap::new();
+                map.insert(name, conv_expr(expr, &map)?);
+                let sel = Select {
+                    map,
+                    tables: vec![],
+                    cond: vec![],
+                };
+                Ok(Query { sels: vec![sel] })
+            }
             _ => Err(Error::NotRangeRestricted(formula)),
         }
     }
@@ -317,66 +375,6 @@ impl<'a> TryFrom<trc::Formula<'a>> for Formula<'a> {
             trc::Formula::Exists(..) => {
                 Err(Error::UnexpectedExists(formula.into()))
             }
-        }
-    }
-}
-*/
-
-/*
-impl<'a> TryFrom<trc::Formula<'a>> for Union<'a> {
-    type Error = Error<'a>;
-
-    fn try_from(formula: trc::Formula) -> Result<Union, Error> {
-        match formula {
-            trc::Formula::Rel(rel, args) => {
-                let mut vars = vec![];
-                let mut map = HashMap::new();
-                let mut un = Join {
-                    tables: vec![Table::Named(rel),
-                    cond: vec![],
-                };
-                for (i, arg) in args.iter().enumerate() {
-                    match arg {
-                        trc::Expression::Const(val) => {
-                            sel.cond.push(Formula::Pred(
-                                "=",
-                                vec![
-                                    Expression::Column(Column {
-                                        query_index: 0,
-                                        table_index: 0,
-                                        column_index: i,
-                                    }),
-                                    Expression::Const(val),
-                                ],
-                            ))
-                        }
-                        trc::Expression::Var(name) => {
-                            // if name already in cols free vars:
-                            // then: add conjunct making them equal
-                            // else: add col for this free var
-                            unimplemented!()
-                        }
-                        _ => (),
-                    }
-                }
-                for (i, arg) in args.into_iter().enumerate() {
-                    match arg {
-                        trc::Expression::App(..) => {
-                            return Err(Error::NotRangeRestricted(arg.into()));
-                        }
-                    }
-                }
-                Union {
-                    vars,
-                    joins: vec![Join]
-                }
-            }
-            trc::Formula::Pred(fun, args) => unimplemented!(),
-            trc::Formula::Equal(lhs, rhs) => unimplemented!(),
-            trc::Formula::Not(arg) => unimplemented!(),
-            trc::Formula::And(lhs, rhs) => unimplemented!(),
-            trc::Formula::Or(lhs, rhs) => unimplemented!(),
-            trc::Formula::Exists(vars, body) => unimplemented!(),
         }
     }
 }

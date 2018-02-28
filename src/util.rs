@@ -41,9 +41,9 @@ where
     }
 }
 
-/// Converts a vector of two `T` to two `Box<U>`, and constructs `V` with them.
+/// Converts a slice of two `T` to two `Box<U>`, and constructs `V` with them.
 ///
-/// Returns `Err` if the vector has the wrong number of elements, or if
+/// Returns `Err` if the slice has the wrong number of elements, or if
 /// conversion from `T` to `U` using the `TryInto` trait fails.
 pub fn try_into_box_2<'a, T, U, V, F, Error>(
     make: F,
