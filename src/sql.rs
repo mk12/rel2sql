@@ -7,16 +7,13 @@
 //!
 //! [`trc`]: ../trc/index.html
 
-use std::collections::HashSet;
 use std::convert::{TryFrom, TryInto};
-use std::fmt;
 use std::mem;
 
 use map::OrderMap;
 use ops;
 use trc;
 use ulc::Term;
-use util::try_vec_to_vec;
 
 /// Style options for conversion to SQL.
 #[derive(Debug, PartialEq, Eq)]
@@ -35,13 +32,13 @@ pub struct Style {
 #[derive(Debug, PartialEq, Eq)]
 pub enum Error<'a> {
     /// The tuple relational calculus formula is not range restricted.
-    NotRangeRestricted(Term<'a>),
+    NotRangeRestricted(&'a trc::Formula<'a>),
     /// A free variable in the result tuple does not appear in the formula.
     UnconstrainedVariable(&'a str),
-    /// An unexpected `trc::Formula::Rel` term was found.
-    UnexpectedRel(Term<'a>),
-    /// An unexpected `trc::Formula::Exists` term was found.
-    UnexpectedExists(Term<'a>),
+    // /// An unexpected `trc::Formula::Rel` term was found.
+    // UnexpectedRel(Term<'a>),
+    // /// An unexpected `trc::Formula::Exists` term was found.
+    // UnexpectedExists(Term<'a>),
 }
 
 /// A top-level SQL query.
@@ -207,15 +204,16 @@ impl<'a> From<Column> for Expression<'a> {
     }
 }
 
-impl<'a> TryFrom<trc::Query<'a>> for TopQuery<'a> {
+impl<'a> TryFrom<&'a trc::Query<'a>> for TopQuery<'a> {
     type Error = Error<'a>;
 
-    fn try_from(query: trc::Query) -> Result<TopQuery, Error> {
-        let union: Query = query.formula.try_into()?;
-        let sel: Select = union.into();
+    fn try_from(
+        trc::Query { tuple, formula }: &'a trc::Query<'a>,
+    ) -> Result<TopQuery, Error> {
+        let query: Query = formula.try_into()?;
+        let sel: Select = query.into();
         Ok(TopQuery {
-            cols: query
-                .tuple
+            cols: tuple
                 .iter()
                 .map(|arg| convert_expression(arg, &sel.map))
                 .collect::<Result<Vec<_>, _>>()
@@ -225,10 +223,10 @@ impl<'a> TryFrom<trc::Query<'a>> for TopQuery<'a> {
     }
 }
 
-impl<'a> TryFrom<trc::Formula<'a>> for Query<'a> {
+impl<'a> TryFrom<&'a trc::Formula<'a>> for Query<'a> {
     type Error = Error<'a>;
 
-    fn try_from(formula: trc::Formula) -> Result<Query, Error> {
+    fn try_from(formula: &'a trc::Formula<'a>) -> Result<Query, Error> {
         match formula {
             trc::Formula::Rel(rel, args) => {
                 let mut map: VarMap = OrderMap::new();
@@ -255,9 +253,8 @@ impl<'a> TryFrom<trc::Formula<'a>> for Query<'a> {
                     if let trc::Expression::App(..) = arg {
                         cond.push(equal(
                             column(0, i),
-                            convert_expression(&arg, &map).or(Err(
-                                Error::NotRangeRestricted(arg.into()),
-                            ))?,
+                            convert_expression(&arg, &map)
+                                .or(Err(Error::NotRangeRestricted(formula)))?,
                         ));
                     }
                 }
@@ -271,7 +268,7 @@ impl<'a> TryFrom<trc::Formula<'a>> for Query<'a> {
             trc::Formula::And(box lhs, box rhs) => {
                 let mut query: Query = lhs.try_into()?;
                 let sel = query.mut_select();
-                match &rhs {
+                match rhs {
                     trc::Formula::Rel(..) => unimplemented!(),
                     trc::Formula::Equal(x, y) => match (x, y) {
                         (box trc::Expression::Var(name), ref expr)
@@ -279,7 +276,7 @@ impl<'a> TryFrom<trc::Formula<'a>> for Query<'a> {
                             if !sel.map.contains_key(name) =>
                         {
                             let expr = convert_expression(expr, &sel.map).or(
-                                Err(Error::NotRangeRestricted(formula.into())),
+                                Err(Error::NotRangeRestricted(rhs.into())),
                             )?;
                             sel.map.insert(name, expr);
                         }

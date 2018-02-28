@@ -68,6 +68,17 @@ pub enum Formula<'a> {
     Exists(Vec<&'a str>, Box<Formula<'a>>),
 }
 
+/// Error type for conversions to the tuple relational calculus.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Error<'a> {
+    /// Failure of a term to convert to an expression.
+    NotExpression(&'a Term<'a>),
+    /// Failure of a term to convert to a formula.
+    NotFormula(&'a Term<'a>),
+    /// An unexpected internal error.
+    Internal(&'static str),
+}
+
 impl<'a> Expression<'a> {
     /// Returns the free variables of the expression.
     pub fn free_vars(&self) -> HashSet<&str> {
@@ -137,17 +148,6 @@ impl<'a> Formula<'a> {
     }
 }
 
-/// Error type for conversions to the tuple relational calculus.
-#[derive(Debug, PartialEq, Eq)]
-pub enum Error<'a> {
-    /// Failure of a term to convert to an expression.
-    NotExpression(Term<'a>),
-    /// Failure of a term to convert to a formula.
-    NotFormula(Term<'a>),
-    /// An unexpected internal error.
-    Internal(&'static str),
-}
-
 impl<'a> From<&'static str> for Error<'a> {
     fn from(s: &'static str) -> Error {
         Error::Internal(s)
@@ -180,21 +180,23 @@ impl<'a> fmt::Display for Error<'a> {
     }
 }
 
-impl<'a> TryFrom<ulc::Query<'a>> for Query<'a> {
+impl<'a> TryFrom<&'a ulc::Query<'a>> for Query<'a> {
     type Error = Error<'a>;
 
-    fn try_from(query: ulc::Query) -> Result<Query, Error> {
+    fn try_from(
+        ulc::Query { tuple, formula }: &'a ulc::Query<'a>,
+    ) -> Result<Query, Error> {
         Ok(Query {
-            tuple: try_vec_to_vec(query.tuple)?,
-            formula: query.formula.try_into()?,
+            tuple: try_vec_to_vec(tuple)?,
+            formula: formula.try_into()?,
         })
     }
 }
 
-impl<'a> TryFrom<Term<'a>> for Expression<'a> {
+impl<'a> TryFrom<&'a Term<'a>> for Expression<'a> {
     type Error = Error<'a>;
 
-    fn try_from(term: Term) -> Result<Expression, Error> {
+    fn try_from(term: &'a Term<'a>) -> Result<Expression, Error> {
         match term {
             Term::Const(val) => Ok(Expression::Const(val)),
             Term::Var(name) => Ok(Expression::Var(name)),
@@ -209,21 +211,21 @@ impl<'a> TryFrom<Term<'a>> for Expression<'a> {
     }
 }
 
-impl<'a> TryFrom<Term<'a>> for Formula<'a> {
+impl<'a> TryFrom<&'a Term<'a>> for Formula<'a> {
     type Error = Error<'a>;
 
-    fn try_from(term: Term) -> Result<Formula, Error> {
+    fn try_from(term: &'a Term<'a>) -> Result<Formula, Error> {
         match term {
             Term::Const(..) | Term::Var(..) => Err(Error::NotFormula(term)),
             Term::Abs(vars, box body) => {
-                Ok(Formula::Exists(vars, box body.try_into()?))
+                Ok(Formula::Exists(vars.clone(), box body.try_into()?))
             }
             // The Term::App arm has to be split to please the borrow checker,
             // since we move the term into the error.
             Term::App(fun, _) if ops::kind(fun) == Some(Kind::Expression) => {
                 Err(Error::NotFormula(term))
             }
-            Term::App(fun, args) => match ops::kind(fun) {
+            Term::App(&fun, args) => match ops::kind(fun) {
                 Some(Kind::Formula) => match fun {
                     ops::NOT => try_vec_to_box(Formula::Not, args),
                     ops::AND => try_vec_to_box_2(Formula::And, args),
@@ -237,17 +239,17 @@ impl<'a> TryFrom<Term<'a>> for Formula<'a> {
     }
 }
 
-impl<'a> From<Query<'a>> for ulc::Query<'a> {
-    fn from(query: Query) -> ulc::Query {
+impl<'a> From<&'a Query<'a>> for ulc::Query<'a> {
+    fn from(Query { tuple, formula }: &'a Query<'a>) -> ulc::Query {
         ulc::Query {
-            tuple: vec_to_vec(query.tuple),
-            formula: query.formula.into(),
+            tuple: vec_to_vec(tuple),
+            formula: formula.into(),
         }
     }
 }
 
-impl<'a> From<Expression<'a>> for Term<'a> {
-    fn from(expr: Expression) -> Term {
+impl<'a> From<&'a Expression<'a>> for Term<'a> {
+    fn from(expr: &'a Expression<'a>) -> Term {
         match expr {
             Expression::Const(val) => Term::Const(val),
             Expression::Var(name) => Term::Var(name),
@@ -256,8 +258,8 @@ impl<'a> From<Expression<'a>> for Term<'a> {
     }
 }
 
-impl<'a> From<Formula<'a>> for Term<'a> {
-    fn from(formula: Formula) -> Term {
+impl<'a> From<&'a Formula<'a>> for Term<'a> {
+    fn from(formula: &'a Formula<'a>) -> Term {
         match formula {
             Formula::Rel(fun, args) | Formula::Pred(fun, args) => {
                 Term::App(fun, vec_to_vec(args))
@@ -272,7 +274,9 @@ impl<'a> From<Formula<'a>> for Term<'a> {
             Formula::Or(box lhs, box rhs) => {
                 Term::App(ops::OR, vec![lhs.into(), rhs.into()])
             }
-            Formula::Exists(vars, box body) => Term::Abs(vars, box body.into()),
+            Formula::Exists(vars, box body) => {
+                Term::Abs(vars.clone(), box body.into())
+            }
         }
     }
 }
