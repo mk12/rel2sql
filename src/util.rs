@@ -2,32 +2,30 @@
 
 use std::convert::TryInto;
 
-// TODO: Rewrite docs, rename?
-
-/// Converts a vector of type to another using `Into`.
-pub fn vec_to_vec<'a, T, U>(v: &'a [T]) -> Vec<U>
+/// Converts a slice of one type to another type using `Into`.
+pub fn into_vec<'a, T, U>(v: &'a [T]) -> Vec<U>
 where
     &'a T: Into<U>,
 {
     v.iter().map(Into::into).collect()
 }
 
-/// Converts a vector of type to another using `TryInto`.
+/// Converts a slice of one type to another type using `TryInto`.
 ///
 /// Returns `Ok` if all elements convert successfully. Otherwise, returns the
 /// `Err` for the first failed conversion.
-pub fn try_vec_to_vec<'a, T, U, Error>(v: &'a [T]) -> Result<Vec<U>, Error>
+pub fn try_into_vec<'a, T, U, Error>(v: &'a [T]) -> Result<Vec<U>, Error>
 where
     &'a T: TryInto<U, Error = Error>,
 {
     v.iter().map(TryInto::try_into).collect()
 }
 
-/// Converts a vector of one `T` to a `Box<U>`, and constructs `V` with it.
+/// Converts a slice of one `T` to a `Box<U>`, and constructs `V` with it.
 ///
-/// Returns `Err` if the vector has the wrong number of elements, or if
+/// Returns `Err` if the slice has the wrong number of elements, or if
 /// conversion from `T` to `U` using the `TryInto` trait fails.
-pub fn try_vec_to_box<'a, T, U, V, F, Error>(
+pub fn try_into_box<'a, T, U, V, F, Error>(
     make: F,
     args: &'a [T],
 ) -> Result<V, Error>
@@ -47,7 +45,7 @@ where
 ///
 /// Returns `Err` if the vector has the wrong number of elements, or if
 /// conversion from `T` to `U` using the `TryInto` trait fails.
-pub fn try_vec_to_box_2<'a, T, U, V, F, Error>(
+pub fn try_into_box_2<'a, T, U, V, F, Error>(
     make: F,
     args: &'a [T],
 ) -> Result<V, Error>

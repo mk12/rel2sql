@@ -17,7 +17,7 @@ use std::error;
 
 use ops::{self, Kind};
 use ulc::{self, Term};
-use util::{try_vec_to_box, try_vec_to_vec, vec_to_vec, try_vec_to_box_2};
+use util::{into_vec, try_into_box, try_into_vec, try_into_box_2};
 
 /// A query in the tuple relational calculus.
 ///
@@ -187,7 +187,7 @@ impl<'a> TryFrom<&'a ulc::Query<'a>> for Query<'a> {
         ulc::Query { tuple, formula }: &'a ulc::Query<'a>,
     ) -> Result<Query, Error> {
         Ok(Query {
-            tuple: try_vec_to_vec(tuple)?,
+            tuple: try_into_vec(tuple)?,
             formula: formula.try_into()?,
         })
     }
@@ -205,7 +205,7 @@ impl<'a> TryFrom<&'a Term<'a>> for Expression<'a> {
                 Err(Error::NotExpression(term))
             }
             Term::App(fun, args) => {
-                Ok(Expression::App(fun, try_vec_to_vec(args)?))
+                Ok(Expression::App(fun, try_into_vec(args)?))
             }
         }
     }
@@ -227,13 +227,13 @@ impl<'a> TryFrom<&'a Term<'a>> for Formula<'a> {
             }
             Term::App(fun, args) => match ops::kind(fun) {
                 Some(Kind::Formula) => match *fun {
-                    ops::NOT => try_vec_to_box(Formula::Not, args),
-                    ops::AND => try_vec_to_box_2(Formula::And, args),
-                    ops::OR => try_vec_to_box_2(Formula::Or, args),
-                    ops::EQ => try_vec_to_box_2(Formula::Equal, args),
-                    _ => Ok(Formula::Pred(fun, try_vec_to_vec(args)?)),
+                    ops::NOT => try_into_box(Formula::Not, args),
+                    ops::AND => try_into_box_2(Formula::And, args),
+                    ops::OR => try_into_box_2(Formula::Or, args),
+                    ops::EQ => try_into_box_2(Formula::Equal, args),
+                    _ => Ok(Formula::Pred(fun, try_into_vec(args)?)),
                 },
-                _ => Ok(Formula::Rel(fun, try_vec_to_vec(args)?)),
+                _ => Ok(Formula::Rel(fun, try_into_vec(args)?)),
             },
         }
     }
@@ -242,7 +242,7 @@ impl<'a> TryFrom<&'a Term<'a>> for Formula<'a> {
 impl<'a> From<&'a Query<'a>> for ulc::Query<'a> {
     fn from(Query { tuple, formula }: &'a Query<'a>) -> ulc::Query {
         ulc::Query {
-            tuple: vec_to_vec(tuple),
+            tuple: into_vec(tuple),
             formula: formula.into(),
         }
     }
@@ -253,7 +253,7 @@ impl<'a> From<&'a Expression<'a>> for Term<'a> {
         match expr {
             Expression::Const(val) => Term::Const(val),
             Expression::Var(name) => Term::Var(name),
-            Expression::App(fun, args) => Term::App(fun, vec_to_vec(args)),
+            Expression::App(fun, args) => Term::App(fun, into_vec(args)),
         }
     }
 }
@@ -262,7 +262,7 @@ impl<'a> From<&'a Formula<'a>> for Term<'a> {
     fn from(formula: &'a Formula<'a>) -> Term {
         match formula {
             Formula::Rel(fun, args) | Formula::Pred(fun, args) => {
-                Term::App(fun, vec_to_vec(args))
+                Term::App(fun, into_vec(args))
             }
             Formula::Equal(box lhs, box rhs) => {
                 Term::App(ops::EQ, vec![lhs.into(), rhs.into()])
