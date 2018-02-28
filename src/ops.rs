@@ -86,7 +86,7 @@ lazy_static! {
     /// A mapping from operators to their kind.
     static ref KIND_MAP: HashMap<&'static str, Kind> = {
         let mut map = HashMap::new();
-        for &(kind, ops) in KIND_LIST.iter() {
+        for &(kind, ops) in &KIND_LIST {
             for &op in ops {
                 map.insert(op, kind);
             }

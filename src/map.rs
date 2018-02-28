@@ -1,17 +1,16 @@
 /// Hash map data structure.
 
 use std::collections::{hash_map, HashMap};
-use std::fmt;
 use std::hash::Hash;
 
 /// A hash map that remembers insertion order.
 ///
-/// To simplify the implementation, the key types `K` is required to be `Copy`.
+/// To simplify the implementation, the key type `K` is required to be `Copy`.
 /// This makes it easier to store in both the vector and the map.
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct OrderMap<K, V>
 where
-    K: fmt::Debug + PartialEq + Eq + Hash,
+    K: Eq + Hash + Copy,
 {
     /// The keys in the order they were inserted.
     keys: Vec<K>,
@@ -21,7 +20,7 @@ where
 
 impl<K, V> OrderMap<K, V>
 where
-    K: fmt::Debug + PartialEq + Eq + Hash + Copy,
+    K: Eq + Hash + Copy,
 {
     /// Creates a new `OrderMap`.
     pub fn new() -> OrderMap<K, V> {
@@ -32,7 +31,7 @@ where
     }
 
     /// Checks if the map contains a key.
-    pub fn contains_key(&self, k: K) -> bool {
+    pub fn contains(&self, k: K) -> bool {
         self.map.contains_key(&k)
     }
 
@@ -47,9 +46,12 @@ where
     }
 
     /// Inserts an entry into the map.
-    pub fn insert(&mut self, k: K, v: V) -> Option<V> {
+    pub fn insert<T>(&mut self, k: K, v: T) -> Option<V>
+    where
+        T: Into<V>,
+    {
         self.keys.push(k);
-        self.map.insert(k, v)
+        self.map.insert(k, v.into())
     }
 
     /// Removes an entry from the map.

@@ -2,8 +2,10 @@
 
 use std::convert::TryInto;
 
+// TODO: Rewrite docs, rename?
+
 /// Converts a vector of type to another using `Into`.
-pub fn vec_to_vec<'a, T, U>(v: &'a Vec<T>) -> Vec<U>
+pub fn vec_to_vec<'a, T, U>(v: &'a [T]) -> Vec<U>
 where
     &'a T: Into<U>,
 {
@@ -14,7 +16,7 @@ where
 ///
 /// Returns `Ok` if all elements convert successfully. Otherwise, returns the
 /// `Err` for the first failed conversion.
-pub fn try_vec_to_vec<'a, T, U, Error>(v: &'a Vec<T>) -> Result<Vec<U>, Error>
+pub fn try_vec_to_vec<'a, T, U, Error>(v: &'a [T]) -> Result<Vec<U>, Error>
 where
     &'a T: TryInto<U, Error = Error>,
 {
@@ -27,7 +29,7 @@ where
 /// conversion from `T` to `U` using the `TryInto` trait fails.
 pub fn try_vec_to_box<'a, T, U, V, F, Error>(
     make: F,
-    args: &'a Vec<T>,
+    args: &'a [T],
 ) -> Result<V, Error>
 where
     &'a T: TryInto<U, Error = Error>,
@@ -47,7 +49,7 @@ where
 /// conversion from `T` to `U` using the `TryInto` trait fails.
 pub fn try_vec_to_box_2<'a, T, U, V, F, Error>(
     make: F,
-    args: &'a Vec<T>,
+    args: &'a [T],
 ) -> Result<V, Error>
 where
     &'a T: TryInto<U, Error = Error>,

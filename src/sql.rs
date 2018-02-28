@@ -28,7 +28,7 @@ pub struct Style {
 }
 
 /// Error type for conversions to SQL.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Error<'a> {
     /// The tuple relational calculus formula is not range restricted.
     NotRangeRestricted(&'a trc::Formula<'a>),
@@ -142,6 +142,7 @@ fn convert_expression<'a>(
     expr: &trc::Expression<'a>,
     map: &VarMap<'a>,
 ) -> Result<Expression<'a>, &'a str> {
+    print!("{:?}", map);
     match expr {
         trc::Expression::Const(val) => Ok(Expression::Const(val)),
         trc::Expression::Var(name) => map.get(name).cloned().ok_or(name),
@@ -155,17 +156,17 @@ fn convert_expression<'a>(
 }
 
 /// Combine multiple selections into a single selection.
-fn combine<'a>(sels: Vec<Select<'a>>) -> Select<'a> {
+fn combine(sels: Vec<Select>) -> Select {
     if sels.len() == 1 {
         sels.into_iter().next().unwrap()
     } else {
-        let mut map = OrderMap::new();
+        let mut map = VarMap::new();
         for (i, &var) in sels[0].map.keys().enumerate() {
-            map.insert(var, Expression::Column(column(0, i)));
+            map.insert(var, column(0, i));
         }
         Select {
             map,
-            tables: vec![(Table::Sub(Query { sels: sels }), vec![])],
+            tables: vec![(Table::Sub(Query { sels }), vec![])],
             cond: vec![],
         }
     }
@@ -224,57 +225,50 @@ impl<'a> TryFrom<&'a trc::Formula<'a>> for Query<'a> {
     type Error = Error<'a>;
 
     fn try_from(formula: &'a trc::Formula<'a>) -> Result<Query, Error> {
+        let conv_expr = |expr, map| {
+            convert_expression(expr, map)
+                .map_err(|_| Error::NotRangeRestricted(formula))
+        };
         match formula {
             trc::Formula::Rel(rel, args) => {
-                let mut map: VarMap = OrderMap::new();
+                let mut map = VarMap::new();
                 let mut cond = vec![];
                 for (i, arg) in args.iter().enumerate() {
+                    let col = column(0, i);
                     match arg {
                         trc::Expression::Const(val) => {
-                            cond.push(equal(column(0, i), *val));
+                            cond.push(equal(col, *val));
                         }
                         trc::Expression::Var(name) => {
                             if let Some(expr) = map.get(name) {
-                                cond.push(equal(expr.clone(), column(0, i)))
+                                cond.push(equal(expr.clone(), col))
                             } else {
-                                map.insert(
-                                    name,
-                                    Expression::Column(column(0, i)),
-                                );
+                                map.insert(name, col);
                             }
                         }
-                        _ => (),
+                        trc::Expression::App(..) => (),
                     }
                 }
                 for (i, arg) in args.into_iter().enumerate() {
                     if let trc::Expression::App(..) = arg {
-                        cond.push(equal(
-                            column(0, i),
-                            convert_expression(&arg, &map)
-                                .or(Err(Error::NotRangeRestricted(formula)))?,
-                        ));
+                        cond.push(equal(column(0, i), conv_expr(arg, &map)?));
                     }
                 }
-                let sel = Select {
-                    map,
-                    tables: vec![(Table::Named(rel), vec![])],
-                    cond,
-                };
+                let tables = vec![(Table::Named(rel), vec![])];
+                let sel = Select { map, tables, cond };
                 Ok(Query { sels: vec![sel] })
             }
             trc::Formula::And(box lhs, box rhs) => {
                 let mut query: Query = lhs.try_into()?;
-                let sel = query.mut_select();
+                let mut sel = query.mut_select();
                 match rhs {
                     trc::Formula::Rel(..) => unimplemented!(),
                     trc::Formula::Equal(x, y) => match (x, y) {
-                        (box trc::Expression::Var(name), ref expr)
-                        | (ref expr, box trc::Expression::Var(name))
-                            if !sel.map.contains_key(name) =>
+                        (box trc::Expression::Var(name), expr)
+                        | (expr, box trc::Expression::Var(name))
+                            if !sel.map.contains(name) =>
                         {
-                            let expr = convert_expression(expr, &sel.map).or(
-                                Err(Error::NotRangeRestricted(rhs.into())),
-                            )?;
+                            let expr = conv_expr(expr, &sel.map)?;
                             sel.map.insert(name, expr);
                         }
                         _ => unimplemented!(),
@@ -288,14 +282,14 @@ impl<'a> TryFrom<&'a trc::Formula<'a>> for Query<'a> {
             trc::Formula::Exists(vars, box body) => unimplemented!(),
             trc::Formula::Equal(..) => unimplemented!(),
             // ^ var == const special case (or apps of consts)
-            _ => Err(Error::NotRangeRestricted(formula.into())),
+            _ => Err(Error::NotRangeRestricted(formula)),
         }
     }
 }
 
 /// Returns true if `map` contains all the free vars of `expr`.
 // fn has_free_vars(map: &VarMap, expr: &trc::Expression) -> bool {
-//     expr.free_vars().iter().all(|v| map.contains_key(v))
+//     expr.free_vars().iter().all(|v| map.contains(v))
 // }
 
 /*
