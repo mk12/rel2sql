@@ -10,10 +10,19 @@ use std::hash::Hash;
 /// This makes it easier to store in both the vector and the map without
 /// worrying about references or cloning.
 pub struct OrderMap<K, V> {
-    /// The keys in the order they were inserted.
-    keys: Vec<K>,
+    /// Index of the next entry to be inserted.
+    index: usize,
     /// The underlying hash map.
-    map: HashMap<K, V>,
+    map: HashMap<K, Value<V>>,
+}
+
+/// A wrapper type for storing the insertion index.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Value<V> {
+    /// Index of the value.
+    index: usize,
+    /// The actual value.
+    value: V,
 }
 
 /// A set view of the keys of an `OrderMap`.
@@ -25,7 +34,7 @@ where
     V: PartialEq,
 {
     fn eq(&self, other: &OrderMap<K, V>) -> bool {
-        self.keys == other.keys && self.map == other.map
+        self.index == other.index && self.map == other.map
     }
 }
 
@@ -44,8 +53,8 @@ where
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "OrderMap {{ keys: {:?}, map: {:?} }}",
-            self.keys, self.map
+            "OrderMap {{ index: {:?}, map: {:?} }}",
+            self.index, self.map
         )
     }
 }
@@ -57,7 +66,7 @@ where
     /// Creates a new `OrderMap`.
     pub fn new() -> OrderMap<K, V> {
         OrderMap {
-            keys: vec![],
+            index: 0,
             map: HashMap::new(),
         }
     }
@@ -69,11 +78,16 @@ where
 
     /// Gets a value from the map by key.
     pub fn get(&self, k: K) -> Option<&V> {
-        self.map.get(&k)
+        self.map.get(&k).map(|v| &v.value)
+    }
+
+    ///
+    pub fn get_indexed(&self, k: K) -> Option<(usize, &V)> {
+        self.map.get(&k).map(|v| (v.index, &v.value))
     }
 
     /// Returns an iterator over the keys of the map.
-    pub fn keys(&self) -> hash_map::Keys<K, V> {
+    pub fn keys(&self) -> hash_map::Keys<K, Value<V>> {
         self.map.keys()
     }
 
@@ -83,19 +97,24 @@ where
     }
 
     /// Inserts an entry into the map.
-    pub fn insert<T>(&mut self, k: K, v: T) -> Option<V>
+    pub fn insert<T>(&mut self, k: K, v: T)
     where
         T: Into<V>,
     {
-        self.keys.push(k);
-        self.map.insert(k, v.into())
+        let index = self.index;
+        let value = v.into();
+        self.index += 1;
+        self.map.insert(k, Value { index, value });
     }
 
     /// Removes an entry from the map.
-    ///
-    /// Leaves the key in the `keys` vector to preserve indices.
-    pub fn remove(&mut self, k: K) -> Option<V> {
-        self.map.remove(&k)
+    pub fn remove(&mut self, k: K) {
+        self.map.remove(&k);
+    }
+
+    /// Clears all entries from the map.
+    pub fn clear(&mut self) {
+        self.map.clear();
     }
 }
 
@@ -105,12 +124,12 @@ where
 {
     /// Checks if the set contains a key.
     pub fn contains(&self, k: K) -> bool {
-        self.0.map.contains_key(&k)
+        self.0.contains(k)
     }
 
     /// Checks if the set is a subset of another.
     pub fn is_subset(&self, other: &KeySet<K, V>) -> bool {
-        self.0.map.keys().all(|&k| other.contains(k))
+        self.0.keys().all(|&k| other.contains(k))
     }
 }
 

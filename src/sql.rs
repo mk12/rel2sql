@@ -127,6 +127,10 @@ where
     Formula::Pred(ops::EQ, vec![lhs.into(), rhs.into()])
 }
 
+fn not_exists(query: Query) -> Formula {
+    Formula::Logic(ops::NOT_S, vec![Formula::Exists(box query)])
+}
+
 /// Creates a column expression for the current query.
 fn column(table_index: usize, column_index: usize) -> Column {
     Column {
@@ -233,22 +237,60 @@ impl<'a> TryFrom<&'a trc::Query<'a>> for TopQuery<'a> {
     }
 }
 
+// idea: tiered hash map.
+// instead of stack of maps, can more efficiently represent as:
+// map from str to [(level, val)]
+
 // in additino to map, need query_index offset to add
 // ... what if some come from different levels? need to think about it
-fn convert_formula_helper(
-    formula: &trc::Formula,
-    map: &VarMap,
-) -> Result<Query, Error> {
-    match formula {
-        trc::Formula::Rel(rel, args) => unimplemented!(),
-        trc::Formula::Not(box arg) => unimplemented!(),
-        trc::Formula::And(box lhs, box rhs) => unimplemented!(),
-        trc::Formula::Or(box lhs, box rhs) => unimplemented!(),
-        trc::Formula::Exists(vars, box body) => unimplemented!(),
-        trc::Formula::Equal(box x, box y) => unimplemented!(),
-        trc::Formula::Pred(pred, args) => unimplemented!(),
-    }
-}
+// fn convert_formula<'a>(
+//     formula: &trc::Formula<'a>,
+//     context: &VarMap,
+//     index: usize,
+// ) -> Result<Query<'a>, Error<'a>> {
+//     match formula {
+//         trc::Formula::Rel(rel, args) => {
+//             let mut map = VarMap::new();
+//             let mut cond = vec![];
+//             for (i, arg) in args.iter().enumerate() {
+//                 let col = column(0, i);
+//                 match arg {
+//                     trc::Expression::Const(val) => {
+//                         cond.push(equal(col, *val));
+//                     }
+//                     trc::Expression::Var(name) => {
+//                         if let Some(expr) = map.get(name) {
+//                             cond.push(equal(expr.clone(), col))
+//                         } else {
+//                             map.insert(name, col);
+//                         }
+//                     }
+//                     trc::Expression::App(..) => (),
+//                 }
+//             }
+//             let tables = vec![(Table::Named(rel), vec![])];
+//             let sel = Select { map, tables, cond };
+//             Ok(Query { sels: vec![sel] })
+//         }
+//         trc::Formula::Not(box arg) => unimplemented!(),
+//         trc::Formula::And(box lhs, box rhs) => unimplemented!(),
+//         trc::Formula::Or(box lhs, box rhs) => unimplemented!(),
+//         trc::Formula::Exists(vars, box body) => unimplemented!(),
+//         trc::Formula::Equal(box x, box y) => unimplemented!(),
+//         trc::Formula::Pred(pred, args) => unimplemented!(),
+//     }
+// }
+
+// NOTE: Will eventually need the context thing (can't tell user that simple
+// thing like R(x) & !(x<3) is not RR!), but do it after I got the basic RR
+// working. More pressing concern is how to handle column indices -- whether it
+// should be index for named tables only, and free var for subqueries instead --
+// and how to actually produce names in the SQL.
+
+// ( r(x, y) ) & !( q(f(y)) & !s(f(x)) )
+//  ^^^^^^^^^
+//    x,y:col
+//    y:col
 
 impl<'a> TryFrom<&'a trc::Formula<'a>> for Query<'a> {
     type Error = Error<'a>;
@@ -305,7 +347,19 @@ impl<'a> TryFrom<&'a trc::Formula<'a>> for Query<'a> {
                             conv_expr(y, &sel.map)?,
                         )),
                     },
-                    trc::Formula::Not(box rhs) => unimplemented!(),
+                    trc::Formula::Not(box rhs) => {
+                        let mut rhs_query: Query = rhs.try_into()?;
+                        let mut rhs_sel = rhs_query.mut_select();
+                        for &var in rhs_sel.map.keys() {
+                            if let Some(expr) = sel.map.get(var) {
+                                //rhs_sel.cond.push(equal())
+                            } else {
+
+                            }
+                        }
+                        rhs_sel.map.clear();
+                        sel.cond.push(not_exists(rhs_query));
+                    }
                     _ => unimplemented!(),
                 }
                 Ok(query)
@@ -345,7 +399,17 @@ impl<'a> TryFrom<&'a trc::Formula<'a>> for Query<'a> {
     }
 }
 
-/// Returns true if `map` contains all the free vars of `expr`.
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn it_works() {
+        assert_eq!(2, 2);
+    }
+}
+
+// Returns true if `map` contains all the free vars of `expr`.
 // fn has_free_vars(map: &VarMap, expr: &trc::Expression) -> bool {
 //     expr.free_vars().iter().all(|v| map.contains(v))
 // }
@@ -458,17 +522,7 @@ impl<'a> TryFrom<trc::Formula<'a>> for Formula<'a> {
 
 //(R(x) & S(x)) & ((R(f(x)) & S(f(x))))
 
-/// R(x,y) & (p(1) | q(2) & ((z(3) & w(2)) | q(4))
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        assert_eq!(2, 2);
-    }
-}
+// R(x,y) & (p(1) | q(2) & ((z(3) & w(2)) | q(4))
 
 // TODO:
 // - helper for Equality expr
